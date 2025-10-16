@@ -9,6 +9,28 @@ type ChatResp = { answer: string }
 type Msg = { who:'user'|'bot'; text:string }
 type Session = { id:string; name:string; created:number; messages: Msg[] }
 
+// Model selection types
+type ModelInfo = {
+  id: string
+  name: string
+  display_name: string
+  description: string
+  available: boolean
+  auto_available?: boolean
+  is_local: boolean
+  max_tokens: number
+  cost_per_1k: number
+  failure_count: number
+  status?: string
+}
+
+type CurrentModel = {
+  tier: string
+  model_name: string
+  is_user_selected: boolean
+  user_preferred_model: string | null
+}
+
 // LocalStorage keys
 const SESSIONS_KEY = 'rag_chat_sessions'
 const CURRENT_KEY = 'rag_chat_current_session'
@@ -46,6 +68,12 @@ export default function App(){
 
   const currentSession = sessions.find(s=>s.id===currentId)! // guaranteed
   const messages = currentSession.messages
+
+  // Model selection state
+  const [availableModels, setAvailableModels] = useState<ModelInfo[]>([])
+  const [currentModel, setCurrentModel] = useState<CurrentModel | null>(null)
+  const [showModelSelector, setShowModelSelector] = useState(false)
+  const mouseLeaveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   // Persist sessions & current pointer
   useEffect(()=>{ localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions)) }, [sessions])
@@ -87,6 +115,10 @@ export default function App(){
   const bottomRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController|null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  
+  // Model switch notification state
+  const [notification, setNotification] = useState<string>('')
+  const [showNotification, setShowNotification] = useState(false)
   
   // Image upload for chat
   const [selectedImage, setSelectedImage] = useState<File | null>(null)
@@ -167,6 +199,154 @@ export default function App(){
     }
   }
 
+  // Show notification with auto-dismiss
+  function showModelNotification(message: string) {
+    setNotification(message)
+    setShowNotification(true)
+    // Auto-dismiss after 4 seconds
+    setTimeout(() => {
+      setShowNotification(false)
+      setTimeout(() => setNotification(''), 300) // Clear after fade out
+    }, 4000)
+  }
+
+  // Show current model status on demand
+  function showCurrentModelStatus() {
+    if (currentModel) {
+      const isLocal = currentModel.model_name.includes('llama') || currentModel.tier === 'local-llama'
+      const icon = isLocal ? '🦙' : '☁️'
+      const selectionType = currentModel.is_user_selected ? 'manually selected' : 'auto-selected'
+      showModelNotification(`${icon} Currently using: ${currentModel.model_name} (${selectionType})`)
+    } else {
+      showModelNotification('ℹ️ No model currently selected')
+    }
+  }
+
+  // Enhanced dropdown mouse handling
+  function handleModelSelectorMouseEnter() {
+    if (mouseLeaveTimeoutRef.current) {
+      clearTimeout(mouseLeaveTimeoutRef.current)
+      mouseLeaveTimeoutRef.current = null
+    }
+  }
+
+  function handleModelSelectorMouseLeave() {
+    // Add a small delay before closing to prevent accidental closure
+    mouseLeaveTimeoutRef.current = setTimeout(() => {
+      setShowModelSelector(false)
+    }, 200) // 200ms delay
+  }
+
+  // 🤖 Model selection related functions
+    // Fetch available models from backend
+  const fetchAvailableModels = async () => {
+    try {
+      console.log('🔍 Fetching available models...');
+      const response = await fetch('/api/models');
+      if (!response.ok) throw new Error(`Failed to fetch models: ${response.status}`);
+      const data = await response.json();
+      const models: ModelInfo[] = data.models || data; // Handle both {models: []} and [] formats
+      console.log('🎯 Processed models:', models.length, 'models loaded');
+      setAvailableModels(models);
+      
+      // Also fetch current model info
+      await fetchCurrentModel();
+    } catch (error) {
+      console.error('❌ Error fetching models:', error);
+    }
+  };
+
+  async function fetchCurrentModel() {
+    try {
+      const response = await fetch('/api/model_status')
+      if (response.ok) {
+        const data = await response.json()
+        const modelInfo: CurrentModel = data.current_model
+        setCurrentModel(modelInfo)
+        console.log('📊 Current model fetched:', modelInfo)
+      }
+    } catch (e) {
+      console.error('Failed to fetch current model:', e)
+    }
+  }
+
+  async function selectModel(modelId: string) {
+    try {
+      const response = await fetch('/api/models/select', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model_id: modelId })
+      })
+      if (response.ok) {
+        setShowModelSelector(false)
+        await fetchCurrentModel() // Refresh current model info
+        
+        // Find the selected model info for notification
+        const selectedModel = availableModels.find(m => m.id === modelId)
+        const modelName = selectedModel?.display_name || modelId
+        const statusIcon = selectedModel?.is_local ? '🦙' : 
+                          selectedModel?.status === 'ready' ? '☁️' : 
+                          selectedModel?.status === 'quota_exceeded' ? '🚫' : '⚠️'
+        
+        showModelNotification(`✅ Successfully switched to: ${statusIcon} ${modelName}`)
+        console.log('✅ Model switched to:', modelId)
+      } else {
+        const selectedModel = availableModels.find(m => m.id === modelId)
+        const modelName = selectedModel?.display_name || modelId
+        showModelNotification(`❌ Failed to switch to: ${modelName}`)
+        console.error('Failed to switch model')
+      }
+    } catch (e) {
+      showModelNotification(`❌ Error switching model: ${e instanceof Error ? e.message : 'Unknown error'}`)
+      console.error('Failed to select model:', e)
+    }
+  }
+
+  async function enableAutoModel() {
+    try {
+      const response = await fetch('/api/models/auto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      })
+      if (response.ok) {
+        setShowModelSelector(false)
+        await fetchCurrentModel() // Refresh current model info
+        showModelNotification('🔄 Auto mode enabled - system will select the best available model')
+        console.log('✅ Auto model enabled')
+      } else {
+        showModelNotification('❌ Failed to enable auto mode')
+      }
+    } catch (e) {
+      showModelNotification(`❌ Error enabling auto mode: ${e instanceof Error ? e.message : 'Unknown error'}`)
+      console.error('Failed to enable auto model:', e)
+    }
+  }
+
+  // Auto-fetch models on component mount
+  useEffect(() => {
+    fetchAvailableModels()
+    fetchCurrentModel()
+  }, [])
+
+  // Show current model notification when currentModel changes
+  useEffect(() => {
+    if (currentModel) {
+      const isLocal = currentModel.model_name.includes('llama') || currentModel.tier === 'local-llama'
+      const icon = isLocal ? '🦙' : '☁️'
+      const selectionType = currentModel.is_user_selected ? 'manually selected' : 'auto-selected'
+      showModelNotification(`${icon} Currently using: ${currentModel.model_name} (${selectionType})`)
+    }
+  }, [currentModel])
+
+  // Cleanup mouse leave timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (mouseLeaveTimeoutRef.current) {
+        clearTimeout(mouseLeaveTimeoutRef.current)
+      }
+    }
+  }, [])
+
   // 📁 File management related functions
   async function fetchUploadedFiles() {
     try {
@@ -214,21 +394,27 @@ export default function App(){
     
     // append user message
     let botIndex = -1
+    let botMessageAdded = false
     updateCurrentMessages(msgs=>{
       const userMsg: Msg = { who: 'user', text: userMessageText }
       const next: Msg[] = [...msgs, userMsg]
-      botIndex = next.length // placeholder index after we push bot placeholder
       return next
     })
     
+    // Don't add placeholder bot message, just use loading indicator
     if(inputRef.current) inputRef.current.value=''
     setLoading(true)
 
     if(useStream){
       abortRef.current = new AbortController()
       const controller = abortRef.current
-      // add placeholder bot message
-      updateCurrentMessages(msgs=>[...msgs, {who:'bot', text:''}])
+      
+      // Set a timeout to prevent hanging streams (30 seconds)
+      const streamTimeout = setTimeout(() => {
+        console.log('Stream timeout - aborting')
+        controller.abort()
+      }, 30000)
+      
       try {
         let resp: Response
         if (selectedImage) {
@@ -258,10 +444,30 @@ export default function App(){
         const reader = resp.body!.getReader()
         const decoder = new TextDecoder('utf-8')
         let buffer = ''
+        let streamCompleted = false
+        let chunkCount = 0
+        const MAX_CHUNKS = 1000 // Safety limit to prevent infinite loops
+        
         while(true){
           const {done, value} = await reader.read()
-            if(done) break
-            buffer += decoder.decode(value, {stream:true})
+          chunkCount++
+          
+          if(done) {
+            console.log(`Stream naturally ended after ${chunkCount} chunks`)
+            break
+          }
+          
+          if(streamCompleted) {
+            console.log(`Stream completed via done event after ${chunkCount} chunks`)
+            break
+          }
+          
+          if(chunkCount > MAX_CHUNKS) {
+            console.warn(`Stream exceeded maximum chunks (${MAX_CHUNKS}), forcing completion`)
+            break
+          }
+          
+          buffer += decoder.decode(value, {stream:true})
             const parts = buffer.split('\n\n')
             buffer = parts.pop() || ''
             for(const raw of parts){
@@ -285,11 +491,30 @@ export default function App(){
                 // Skip model info events - we don't want to display them as message content
                 continue
               }
-              if(event === 'done') continue
+              if(event === 'done') {
+                // Stream completed, set flag to exit main loop
+                console.log('Stream completed - received done event')
+                streamCompleted = true
+                break
+              }
               if(data){
-                // Add the data chunk directly - backend already includes proper spacing
+                // Add the data chunk - add bot message if this is the first chunk
                 console.log('Streaming chunk:', JSON.stringify(data))
-                updateCurrentMessages(msgs => msgs.map((mm, idx)=> idx===botIndex ? {...mm, text: mm.text + data} : mm))
+                updateCurrentMessages(msgs => {
+                  if (!botMessageAdded) {
+                    // First chunk - add new bot message
+                    botMessageAdded = true
+                    return [...msgs, { who: 'bot', text: data }]
+                  } else {
+                    // Subsequent chunks - append to last bot message
+                    const lastIndex = msgs.length - 1
+                    return msgs.map((mm, idx) => 
+                      idx === lastIndex && mm.who === 'bot' 
+                        ? {...mm, text: mm.text + data} 
+                        : mm
+                    )
+                  }
+                })
               }
             }
         }
@@ -298,6 +523,8 @@ export default function App(){
           updateCurrentMessages(msgs=>[...msgs, {who:'bot', text:'Streaming failed: '+(e.message||e.toString())}])
         }
       } finally {
+        // Clear the stream timeout
+        clearTimeout(streamTimeout)
         setLoading(false)
         abortRef.current = null
         // Clear selected image after sending
@@ -435,6 +662,21 @@ export default function App(){
 
   return (
     <div className="flex" style={{height:'100vh'}}>
+      {/* Model Switch Notification */}
+      {showNotification && (
+        <div 
+          className={`model-notification ${showNotification ? 'show' : ''}`}
+          onClick={() => {
+            setShowNotification(false)
+            setTimeout(() => setNotification(''), 300)
+          }}
+          style={{ cursor: 'pointer' }}
+          title="Click to dismiss"
+        >
+          {notification}
+        </div>
+      )}
+      
       {/* Sidebar */}
       <div className="sidebar">
         <div className="sidebar-header">
@@ -663,6 +905,81 @@ export default function App(){
               style={{ display: 'none' }}
             />
             {uploadStatus && <span className="upload-status">{uploadStatus}</span>}
+            
+            {/* Model Selector */}
+            <div 
+              className="model-selector"
+              onMouseEnter={handleModelSelectorMouseEnter}
+              onMouseLeave={handleModelSelectorMouseLeave}
+            >
+              <button 
+                className="btn btn-secondary model-toggle" 
+                onClick={() => setShowModelSelector(!showModelSelector)}
+                title="Select AI Model"
+              >
+                🤖 {currentModel ? currentModel.model_name : 'Select Model'}
+              </button>
+              <button 
+                className="btn model-status-btn" 
+                onClick={showCurrentModelStatus}
+                title={currentModel ? 
+                  `🤖 Active Model: ${currentModel.model_name}\n🔧 Selection: ${currentModel.is_user_selected ? 'Manual' : 'Automatic'}\n📍 Type: ${currentModel.model_name.includes('llama') || currentModel.tier === 'local-llama' ? 'Local (Llama)' : 'Cloud (OpenAI)'}\n\n💡 Click for detailed status` : 
+                  '⚠️ No model selected\n\n💡 Click to see available models'
+                }
+                data-status={currentModel ? (currentModel.is_user_selected ? 'manual' : 'auto') : 'none'}
+              >
+                <div className="model-status-content">
+                  <span className="status-icon">
+                    {currentModel ? (
+                      currentModel.model_name.includes('llama') || currentModel.tier === 'local-llama' ? '🦙' : '☁️'
+                    ) : '❓'}
+                  </span>
+                  <div className="status-details">
+                    <span className="status-label">Status</span>
+                    <span className="status-value">
+                      {currentModel ? (
+                        currentModel.is_user_selected ? 'Manual' : 'Auto'
+                      ) : 'Not Set'}
+                    </span>
+                  </div>
+                </div>
+              </button>
+              {showModelSelector && (
+                <div className="model-dropdown">
+                  <div style={{padding: '4px 8px', fontSize: '10px', color: '#666', borderBottom: '1px solid #eee'}}>
+                    Models loaded: {availableModels.length}
+                  </div>
+                  <div className="model-option auto-option">
+                    <button 
+                      className="model-btn auto-btn"
+                      onClick={enableAutoModel}
+                      title="Enable automatic model selection with fallback"
+                    >
+                      🔄 Auto Mode
+                    </button>
+                  </div>
+                  {availableModels.map((model) => (
+                    <div key={model.id} className="model-option">
+                      <button 
+                        className="model-btn"
+                        onClick={() => selectModel(model.id)}
+                        title={`${model.description} - ${model.status || 'Available'}`}
+                      >
+                        <span className="model-name">{model.display_name}</span>
+                        <span className="model-status">
+                          {model.is_local ? '🦙' : 
+                           model.status === 'ready' ? '☁️' : 
+                           model.status === 'quota_exceeded' ? '🚫' : 
+                           '⚠️'
+                          }
+                        </span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            
             <label className="checkbox-label">
               <input 
                 type="checkbox" 
@@ -688,30 +1005,73 @@ export default function App(){
 
         <div className="messages-container">
           {messages.map((m,i)=> (
-            <div key={i} className={`message ${m.who}`}>
-              <div className="message-header">
-                <div className="message-avatar">
-                  {m.who==='user' ? '👤' : '🤖'}
+            <div key={i} className={`message-wrapper ${m.who}`}>
+              <div className="message-bubble">
+                <div className="message-meta">
+                  <div className="message-avatar">
+                    {m.who==='user' ? (
+                      <div className="avatar-user">
+                        <svg viewBox="0 0 24 24" fill="none" className="avatar-icon">
+                          <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" fill="currentColor"/>
+                        </svg>
+                      </div>
+                    ) : (
+                      <div className="avatar-bot">
+                        <svg viewBox="0 0 24 24" fill="none" className="avatar-icon">
+                          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.94-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" fill="currentColor"/>
+                        </svg>
+                      </div>
+                    )}
+                  </div>
+                  <div className="message-info">
+                    <span className="sender-name">{m.who==='user' ? 'You' : 'AI Assistant'}</span>
+                    <span className="message-time">{new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                  </div>
                 </div>
-                <span>{m.who==='user' ? 'You' : 'Assistant'}</span>
-              </div>
-              <div className="message-content">
-                <div className="markdown-body">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {m.text || ''}
-                  </ReactMarkdown>
+                <div className="message-content">
+                  <div className="message-text">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {m.text || ''}
+                    </ReactMarkdown>
+                  </div>
+                  <div className="message-status">
+                    {m.who === 'user' && (
+                      <svg viewBox="0 0 16 16" className="check-icon">
+                        <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z" fill="currentColor"/>
+                      </svg>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
           ))}
           {loading ? (
-            <div className="loading-indicator">
-              <div className="loading-dots">
-                <div className="loading-dot"></div>
-                <div className="loading-dot"></div>
-                <div className="loading-dot"></div>
+            <div className="message-wrapper bot">
+              <div className="message-bubble loading-message">
+                <div className="message-meta">
+                  <div className="message-avatar">
+                    <div className="avatar-bot">
+                      <svg viewBox="0 0 24 24" fill="none" className="avatar-icon">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.94-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" fill="currentColor"/>
+                      </svg>
+                    </div>
+                  </div>
+                  <div className="message-info">
+                    <span className="sender-name">AI Assistant</span>
+                    <span className="message-time">Typing...</span>
+                  </div>
+                </div>
+                <div className="message-content">
+                  <div className="typing-indicator">
+                    <div className="typing-dots">
+                      <div className="typing-dot"></div>
+                      <div className="typing-dot"></div>
+                      <div className="typing-dot"></div>
+                    </div>
+                    <span className="typing-text">AI is thinking...</span>
+                  </div>
+                </div>
               </div>
-              <span>Generating response...</span>
             </div>
           ) : null}
           <div ref={bottomRef} />

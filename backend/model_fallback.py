@@ -57,8 +57,8 @@ MODEL_CONFIGS = {
         requires_api=True
     ),
     ModelTier.LOCAL: ModelConfig(
-        name="llama2-7b-chat",
-        max_tokens=4096,
+        name="llama3.1:8b",
+        max_tokens=8192,
         cost_per_1k_tokens=0.0,
         requires_api=False,
         endpoint="http://localhost:11434/api/generate"  # Ollama default
@@ -68,13 +68,21 @@ MODEL_CONFIGS = {
 class ModelFallbackManager:
     """Manages intelligent model selection and fallback"""
     
-    def __init__(self, openai_client: OpenAI):
+    def __init__(self, openai_client: OpenAI | None):
         self.client = openai_client
-        self.current_tier = ModelTier.GPT4
+        self.current_tier = ModelTier.LOCAL_LLAMA if openai_client is None else ModelTier.GPT4
+        self.user_preferred_model = None  # User's manually selected model
         self.last_quota_check = 0
         self.quota_cache = {}
         self.failure_counts = {tier: 0 for tier in ModelTier}
         self.last_failure_time = {tier: 0 for tier in ModelTier}
+        
+        # If no OpenAI client, mark all OpenAI models as unavailable
+        if openai_client is None:
+            self.failure_counts[ModelTier.GPT4] = 999
+            self.failure_counts[ModelTier.GPT4_MINI] = 999
+            self.failure_counts[ModelTier.GPT35] = 999
+            print("⚠️ OpenAI client unavailable - will use local model only")
         
         # Load user preferences
         self.min_balance_threshold = float(os.getenv("MIN_OPENAI_BALANCE", "5.0"))  # $5 minimum
@@ -88,9 +96,36 @@ class ModelFallbackManager:
         """
         logger.info(f"Selecting optimal model for ~{estimated_tokens} tokens")
         
+        # If user has manually selected a model, try to use it first
+        if self.user_preferred_model is not None:
+            logger.info(f"User has selected preferred model: {self.user_preferred_model.value}")
+            if await self._can_use_model(self.user_preferred_model, estimated_tokens):
+                if self.user_preferred_model != self.current_tier:
+                    logger.info(f"Using user-selected model: {self.user_preferred_model.value}")
+                    self.current_tier = self.user_preferred_model
+                return self.user_preferred_model, f"User selected {self.user_preferred_model.value}"
+            else:
+                logger.warning(f"User-selected model {self.user_preferred_model.value} is not available, falling back to auto selection")
+        
         # Check OpenAI quota if needed
         if self._should_check_quota():
             await self._check_openai_quota()
+        
+        # If OpenAI client is not available, skip to local model
+        if self.client is None:
+            logger.info("No OpenAI client available, using local model")
+            if await self._check_local_model():
+                self.current_tier = ModelTier.LOCAL_LLAMA
+                return ModelTier.LOCAL_LLAMA, "No API key - using local model"
+        
+        # If too many OpenAI models have failed recently, prefer local model
+        openai_failures = sum(1 for tier in [ModelTier.GPT4, ModelTier.GPT4_MINI, ModelTier.GPT35] 
+                             if self.failure_counts[tier] >= self.max_retries)
+        if openai_failures >= 2:  # If 2 or more OpenAI models are failing
+            logger.info(f"Multiple OpenAI models failing ({openai_failures}/3), preferring local model")
+            if await self._check_local_model():
+                self.current_tier = ModelTier.LOCAL_LLAMA
+                return ModelTier.LOCAL_LLAMA, "OpenAI models unreliable - using local model"
         
         # Try models in order of preference
         for tier in ModelTier:
@@ -98,23 +133,37 @@ class ModelFallbackManager:
                 if tier != self.current_tier:
                     logger.info(f"Switching from {self.current_tier.value} to {tier.value}")
                     self.current_tier = tier
-                return tier, f"Selected {tier.value}"
+                return tier, f"Auto-selected {tier.value}"
         
-        # Fallback to local if everything fails
-        logger.warning("All models unavailable, falling back to local")
+        # If all OpenAI models are down and local is available, use it
+        if await self._check_local_model():
+            logger.warning("All OpenAI models unavailable, switching to local model")
+            self.current_tier = ModelTier.LOCAL
+            return ModelTier.LOCAL, "All cloud models unavailable, using local"
+        
+        # Fallback to local even if check fails (will handle gracefully)
+        logger.warning("All models unavailable, attempting local fallback")
         self.current_tier = ModelTier.LOCAL
-        return ModelTier.LOCAL, "All cloud models unavailable"
+        return ModelTier.LOCAL, "All models unavailable"
     
     async def _can_use_model(self, tier: ModelTier, estimated_tokens: int) -> bool:
         """Check if a specific model can be used"""
         config = MODEL_CONFIGS[tier]
         
-        # Check if failures have expired (5 minutes for rate limits)
+        # Check if failures have expired (longer cooldown for quota issues)
         current_time = time.time()
         if self.failure_counts[tier] >= self.max_retries:
-            if current_time - self.last_failure_time[tier] > 300:  # 5 minutes
-                logger.info(f"Resetting failure count for {tier.value} after cooldown")
+            # Different cooldown periods based on failure type
+            # For quota issues: 24 hours (86400 seconds)
+            # For other issues: 5 minutes (300 seconds)
+            cooldown_period = 86400 if hasattr(self, f'quota_failure_{tier.value}') else 300
+            
+            if current_time - self.last_failure_time[tier] > cooldown_period:
+                logger.info(f"Resetting failure count for {tier.value} after {cooldown_period/60:.0f} minute cooldown")
                 self.failure_counts[tier] = 0
+                # Clear quota failure flag if it exists
+                if hasattr(self, f'quota_failure_{tier.value}'):
+                    delattr(self, f'quota_failure_{tier.value}')
             else:
                 logger.debug(f"Skipping {tier.value} due to recent failures")
                 return False
@@ -136,6 +185,23 @@ class ModelFallbackManager:
     
     async def _check_openai_availability(self, tier: ModelTier, estimated_tokens: int) -> bool:
         """Check if OpenAI model is available and affordable"""
+        # If no OpenAI client, all OpenAI models are unavailable
+        if self.client is None:
+            logger.debug(f"OpenAI client unavailable - {tier.value} not accessible")
+            return False
+        
+        # If this model has failed recently due to quota/rate limits, don't try it
+        if self.failure_counts[tier] >= self.max_retries:
+            current_time = time.time()
+            # Check if enough time has passed since last failure (5 minutes for quota issues)
+            if current_time - self.last_failure_time.get(tier, 0) < 300:
+                logger.debug(f"Model {tier.value} temporarily disabled due to recent quota failures")
+                return False
+            else:
+                # Reset failure count after cooldown
+                self.failure_counts[tier] = 0
+                logger.info(f"Re-enabling {tier.value} after quota cooldown period")
+            
         try:
             config = MODEL_CONFIGS[tier]
             estimated_cost = (estimated_tokens / 1000) * config.cost_per_1k_tokens
@@ -179,6 +245,15 @@ class ModelFallbackManager:
     
     async def _check_openai_quota(self):
         """Check OpenAI account quota and usage"""
+        # If no OpenAI client, skip quota check
+        if self.client is None:
+            self.quota_cache = {
+                'remaining_balance': 0.0,
+                'daily_limit_remaining': 0,
+                'status': 'no_api_key'
+            }
+            return
+            
         try:
             # Note: OpenAI doesn't provide direct billing API access
             # This is a placeholder for when such API becomes available
@@ -222,6 +297,9 @@ class ModelFallbackManager:
     
     async def _execute_openai_chat(self, messages: List[Dict], config: ModelConfig, stream: bool):
         """Execute OpenAI chat completion"""
+        if self.client is None:
+            raise Exception("OpenAI client not available - no API key configured")
+            
         try:
             response = self.client.chat.completions.create(
                 model=config.name,
@@ -238,14 +316,22 @@ class ModelFallbackManager:
             return response
             
         except Exception as e:
-            # Handle rate limiting specially
+            # Handle rate limiting and connection errors specially
             error_str = str(e)
-            if "rate_limit_exceeded" in error_str or "429" in error_str:
-                # Increase failure count more aggressively for rate limits
-                tier = next(t for t, c in MODEL_CONFIGS.items() if c.name == config.name)
-                self.failure_counts[tier] = self.max_retries  # Temporarily disable this model
+            tier = next(t for t, c in MODEL_CONFIGS.items() if c.name == config.name)
+            
+            if ("rate_limit_exceeded" in error_str or "429" in error_str or 
+                "insufficient_quota" in error_str):
+                # Quota errors - disable for 24 hours
+                self.failure_counts[tier] = self.max_retries
                 self.last_failure_time[tier] = time.time()
-                logger.warning(f"Rate limit hit for {config.name}, temporarily disabling for 5 minutes")
+                setattr(self, f'quota_failure_{tier.value}', True)  # Mark as quota failure
+                logger.warning(f"Quota issue for {config.name}, disabling for 24 hours")
+            elif "Connection error" in error_str:
+                # Connection errors - disable for 5 minutes
+                self.failure_counts[tier] = self.max_retries
+                self.last_failure_time[tier] = time.time()
+                logger.warning(f"Connection issue for {config.name}, disabling for 5 minutes")
             
             logger.error(f"OpenAI API error with {config.name}: {e}")
             raise
@@ -255,6 +341,7 @@ class ModelFallbackManager:
         try:
             # Format messages for Ollama
             prompt = self._format_messages_for_local(messages)
+            print(f"🦙 Local model prompt: {prompt[:100]}...")
             
             payload = {
                 "model": config.name,
@@ -262,6 +349,7 @@ class ModelFallbackManager:
                 "stream": stream
             }
             
+            print(f"🦙 Making request to {config.endpoint}")
             response = requests.post(
                 config.endpoint,
                 json=payload,
@@ -269,14 +357,17 @@ class ModelFallbackManager:
                 stream=stream
             )
             
+            print(f"🦙 Local model response status: {response.status_code}")
             if response.status_code == 200:
                 self.failure_counts[ModelTier.LOCAL] = 0
+                print(f"🦙 Local model response content: {response.text[:200]}...")
                 return response
             else:
                 raise Exception(f"Local model returned {response.status_code}")
                 
         except Exception as e:
             logger.error(f"Local model error: {e}")
+            print(f"🦙 Local model error: {e}")
             # Return a helpful fallback response instead of crashing
             if "Connection refused" in str(e):
                 logger.info("Local model unavailable, returning fallback response")
@@ -310,7 +401,9 @@ class ModelFallbackManager:
             "cost_per_1k": config.cost_per_1k_tokens,
             "is_local": not config.requires_api,
             "failure_count": self.failure_counts[self.current_tier],
-            "estimated_balance": self.quota_cache.get('remaining_balance', 'unknown')
+            "estimated_balance": self.quota_cache.get('remaining_balance', 'unknown'),
+            "is_user_selected": self.user_preferred_model == self.current_tier,
+            "user_preferred_model": self.user_preferred_model.value if self.user_preferred_model else None
         }
     
     def _create_fallback_response(self):
