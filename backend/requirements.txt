@@ -1,0 +1,19 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+openai
+tiktoken
+
+# RAG
+langchain>=0.2
+langchain-openai
+langchain-pinecone
+langchain-community
+langchain-huggingface
+pinecone-client
+pypdf
+sentence-transformers
+torch
+transformers
+
+rich

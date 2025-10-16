@@ -1,0 +1,2 @@
+Rui build this RAG-Chat-App, and named it AUV.
+John Garrett is Rui's Manager
