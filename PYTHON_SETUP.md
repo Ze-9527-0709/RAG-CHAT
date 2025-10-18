@@ -1,367 +1,599 @@
-# 🐍 Python Environment Setup Guide | Python 环境配置指南
+# 🐍 Python Environment Setup Guide
 
-**Language / 语言**: [English](#english) | [中文](#中文)
-
----
-
-## English
-
-> **Important Notice**: RAG Chat App's AI dependencies (LangChain, Transformers, etc.) are sensitive to Python versions. Please use compatible versions.
+**Language**: [English](PYTHON_SETUP.md) | [中文](中文指南/PYTHON_SETUP.md)
 
 ---
 
-## 中文
+> **Complete Python Environment Configuration for RAG Chat App**
 
-> **重要提醒**: RAG Chat App 的 AI 依赖（LangChain、Transformers等）对 Python 版本敏感，请务必使用兼容版本。
+This guide provides detailed instructions for setting up Python environments compatible with the RAG Chat application, with special attention to LangChain dependency requirements.
 
-## ✅ Supported Python Versions | 支持的 Python 版本
+## 🚨 Critical Version Requirements
 
-**English:**
+### Supported Python Versions
+- ✅ **Python 3.8** - Fully supported
+- ✅ **Python 3.9** - Fully supported  
+- ✅ **Python 3.10** - Recommended
+- ✅ **Python 3.11** - Recommended
+- ❌ **Python 3.12** - Not supported (LangChain compatibility issues)
+- ❌ **Python 3.13** - Not supported
+- ❌ **Python 3.14** - Not supported
 
-| Version Range | Status | Description |
-|---------------|---------|-------------|
-| Python 3.8-3.11 | ✅ Fully Supported | Recommended |
-| Python 3.10-3.11 | 🌟 Best Choice | Optimal compatibility |
-| Python 3.12+ | ❌ Not Supported | LangChain compatibility issues |
-| Python < 3.8 | ❌ Not Supported | Missing features |
+> **⚠️ Important**: LangChain and related AI libraries have strict version requirements. Using unsupported versions will cause installation failures.
 
-**中文:**
+## 🔍 Check Current Python Version
 
-| 版本范围 | 状态 | 说明 |
-|---------|------|------|
-| Python 3.8-3.11 | ✅ 完全支持 | 推荐使用 |
-| Python 3.10-3.11 | 🌟 最佳选择 | 最佳兼容性 |
-| Python 3.12+ | ❌ 不支持 | LangChain 兼容性问题 |
-| Python < 3.8 | ❌ 不支持 | 功能不完整 |
-
-## 🔍 Check Current Version | 检查当前版本
-
-**English:**
 ```bash
-python3 --version
-# or
+# Check Python version
 python --version
-```
-
-**中文:**
-```bash
 python3 --version
-# 或
-python --version
+
+# Check if pip is available
+pip --version
+pip3 --version
 ```
 
-## 🛠️ Version Solutions | 解决版本问题
+## 🛠️ Installation Methods
 
-### Method 1: Using pyenv (Recommended) | 方法一：使用 pyenv (推荐)
+### Method 1: Official Python Installer (Recommended for Beginners)
 
-**English:**
+1. **Visit Official Website**
+   - Go to: https://www.python.org/downloads/
+   - Download Python 3.10 or 3.11 (latest stable)
 
-**1. Install pyenv**
+2. **Installation Steps**
+   ```bash
+   # macOS: Download .pkg installer
+   # Windows: Download .exe installer  
+   # Linux: Use package manager or compile from source
+   ```
+
+3. **Verify Installation**
+   ```bash
+   python3 --version
+   # Should show: Python 3.10.x or Python 3.11.x
+   ```
+
+### Method 2: Package Managers
+
+#### macOS (Homebrew)
 ```bash
-# macOS
-brew install pyenv
-
-# Ubuntu/Debian
-curl https://pyenv.run | bash
-
-# Add to shell configuration
-echo 'export PATH="$HOME/.pyenv/bin:$PATH"' >> ~/.bashrc
-echo 'eval "$(pyenv init --path)"' >> ~/.bashrc
-echo 'eval "$(pyenv init -)"' >> ~/.bashrc
-```
-
-**2. Install and Use Python 3.11**
-```bash
-# View available versions
-pyenv install --list | grep 3.11
+# Install Homebrew if not installed
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
 # Install Python 3.11
-pyenv install 3.11.0
+brew install python@3.11
 
-# Set project to use specific version
-cd RAG-CHAT
-pyenv local 3.11.0
-
-# Verify version
-python --version
+# Set as default (optional)
+echo 'export PATH="/opt/homebrew/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
 ```
 
-**中文:**
-
-**1. 安装 pyenv**
+#### Ubuntu/Debian
 ```bash
-# macOS
+# Update package list
+sudo apt update
+
+# Install Python 3.11
+sudo apt install python3.11 python3.11-venv python3.11-pip
+
+# Install additional tools
+sudo apt install python3.11-dev python3.11-distutils
+```
+
+#### CentOS/RHEL/Fedora
+```bash
+# Install Python 3.11 (Fedora)
+sudo dnf install python3.11 python3.11-pip python3.11-venv
+
+# For CentOS/RHEL, enable EPEL repository first
+sudo yum install epel-release
+sudo yum install python311 python311-pip
+```
+
+### Method 3: Python Version Manager (pyenv) - Advanced Users
+
+pyenv allows you to install and manage multiple Python versions.
+
+#### Install pyenv
+
+**macOS:**
+```bash
+# Install using Homebrew
 brew install pyenv
 
-# Ubuntu/Debian
+# Add to shell profile
+echo 'export PYENV_ROOT="$HOME/.pyenv"' >> ~/.zshrc
+echo 'command -v pyenv >/dev/null || export PATH="$PYENV_ROOT/bin:$PATH"' >> ~/.zshrc
+echo 'eval "$(pyenv init -)"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+**Linux:**
+```bash
+# Install using curl
 curl https://pyenv.run | bash
 
-# 添加到 shell 配置
-echo 'export PATH="$HOME/.pyenv/bin:$PATH"' >> ~/.bashrc
-echo 'eval "$(pyenv init --path)"' >> ~/.bashrc
+# Add to shell profile
+echo 'export PYENV_ROOT="$HOME/.pyenv"' >> ~/.bashrc
+echo 'command -v pyenv >/dev/null || export PATH="$PYENV_ROOT/bin:$PATH"' >> ~/.bashrc
 echo 'eval "$(pyenv init -)"' >> ~/.bashrc
+source ~/.bashrc
 ```
 
-**2. 安装并使用 Python 3.11**
+#### Use pyenv to Install Python
+
 ```bash
-# 查看可用版本
+# List available Python versions
 pyenv install --list | grep 3.11
 
-# 安装 Python 3.11
-pyenv install 3.11.0
+# Install Python 3.11.x (latest)
+pyenv install 3.11.5
 
-# 设置项目使用指定版本
-cd RAG-CHAT
-pyenv local 3.11.0
+# Set as global default
+pyenv global 3.11.5
 
-# 验证版本
+# Verify
 python --version
 ```
 
-### Method 2: Virtual Environment | 方法二：虚拟环境
+## 🏠 Virtual Environment Setup
 
-**English:**
+Virtual environments isolate project dependencies and prevent conflicts.
 
-**Create Compatible Virtual Environment**
+### Method 1: venv (Built-in, Recommended)
+
 ```bash
-# If system has multiple Python versions
-python3.11 -m venv rag_chat_env
+# Navigate to project directory
+cd RAG-Chat-App
 
-# Activate virtual environment
-source rag_chat_env/bin/activate  # Linux/macOS
-# or
-rag_chat_env\Scripts\activate     # Windows
-
-# Verify version
-python --version
-
-# Install dependencies
-pip install -r backend/requirements.txt
-```
-
-**中文:**
-
-**创建兼容的虚拟环境**
-```bash
-# 如果系统有多个 Python 版本
-python3.11 -m venv rag_chat_env
-
-# 激活虚拟环境
-source rag_chat_env/bin/activate  # Linux/macOS
-# 或
-rag_chat_env\Scripts\activate     # Windows
-
-# 验证版本
-python --version
-
-# 安装依赖
-pip install -r backend/requirements.txt
-```
-
-### Method 3: Conda Environment | 方法三：Conda 环境
-
-**English:**
-
-**Using Anaconda/Miniconda**
-```bash
-# Create new environment
-conda create -n rag_chat python=3.11
+# Create virtual environment
+python3 -m venv venv
 
 # Activate environment
-conda activate rag_chat
+# macOS/Linux:
+source venv/bin/activate
+
+# Windows:
+# venv\Scripts\activate
+
+# Verify activation (should show venv path)
+which python
+python --version
+
+# Install project dependencies
+pip install -r backend/requirements.txt
+```
+
+### Method 2: conda (If using Anaconda/Miniconda)
+
+```bash
+# Create conda environment with Python 3.11
+conda create -n rag-chat python=3.11
+
+# Activate environment
+conda activate rag-chat
+
+# Install pip packages
+pip install -r backend/requirements.txt
+
+# Or install via conda when available
+conda install numpy pandas
+pip install -r backend/requirements.txt
+```
+
+### Method 3: virtualenv (Third-party)
+
+```bash
+# Install virtualenv
+pip install virtualenv
+
+# Create environment
+virtualenv -p python3.11 venv
+
+# Activate
+source venv/bin/activate  # macOS/Linux
+# venv\Scripts\activate   # Windows
 
 # Install dependencies
 pip install -r backend/requirements.txt
 ```
 
-**中文:**
+## 🐍 Conda Environment Setup (Advanced)
 
-**使用 Anaconda/Miniconda**
+### Install Miniconda
+
+1. **Download Miniconda**
+   - Visit: https://docs.conda.io/en/latest/miniconda.html
+   - Choose installer for your OS
+
+2. **Install and Setup**
+   ```bash
+   # macOS/Linux
+   bash Miniconda3-latest-Linux-x86_64.sh
+   
+   # Follow prompts, restart terminal
+   conda --version
+   ```
+
+### Create Project Environment
+
 ```bash
-# 创建新环境
-conda create -n rag_chat python=3.11
+# Create environment with specific Python version
+conda create -n rag-chat python=3.11 pip
 
-# 激活环境
-conda activate rag_chat
+# Activate environment
+conda activate rag-chat
 
-# 安装依赖
+# Install core packages via conda (faster)
+conda install numpy pandas scipy
+
+# Install AI packages via pip
+pip install -r backend/requirements.txt
+
+# List installed packages
+conda list
+pip list
+```
+
+### Environment Management
+
+```bash
+# List all environments
+conda env list
+
+# Remove environment
+conda env remove -n rag-chat
+
+# Export environment
+conda env export > environment.yml
+
+# Create from exported file
+conda env create -f environment.yml
+```
+
+## 🔧 Dependency Installation & Troubleshooting
+
+### Core Dependencies
+
+The RAG Chat app requires these key packages:
+
+```bash
+# AI and ML packages
+pip install openai langchain langchain-huggingface
+pip install pinecone-client sentence-transformers
+
+# Web framework
+pip install fastapi uvicorn
+
+# Data processing
+pip install pandas numpy
+
+# File handling
+pip install python-multipart
+```
+
+### Common Installation Issues
+
+#### Issue 1: LangChain Compatibility
+
+**Problem**: `ERROR: Cannot install langchain with Python 3.12+`
+
+**Solution**:
+```bash
+# Check Python version
+python --version
+
+# If 3.12+, install compatible Python version
+pyenv install 3.11.5
+pyenv local 3.11.5
+
+# Recreate virtual environment
+rm -rf venv
+python -m venv venv
+source venv/bin/activate
 pip install -r backend/requirements.txt
 ```
 
-## 🚀 Quick Fix Script | 快速修复脚本
+#### Issue 2: Compilation Errors
 
-**English:**
+**Problem**: `error: Microsoft Visual C++ 14.0 is required` (Windows)
 
-If you encounter version issues, use the following script for quick fixes:
+**Solutions**:
+```bash
+# Option 1: Install Visual Studio Build Tools
+# Download from: https://visualstudio.microsoft.com/visual-cpp-build-tools/
 
-**中文:**
+# Option 2: Use pre-compiled wheels
+pip install --only-binary=all -r backend/requirements.txt
 
-如果遇到版本问题，可以使用以下脚本快速修复：
+# Option 3: Use conda for problematic packages
+conda install numpy scipy pandas
+pip install -r backend/requirements.txt
+```
 
-**English:**
+#### Issue 3: Permission Errors
+
+**Problem**: `Permission denied` during installation
+
+**Solutions**:
+```bash
+# Use user installation (not recommended in venv)
+pip install --user package_name
+
+# Fix permissions (macOS/Linux)
+sudo chown -R $(whoami) ~/.local
+
+# Use virtual environment (recommended)
+python -m venv venv
+source venv/bin/activate
+pip install -r backend/requirements.txt
+```
+
+#### Issue 4: Network/SSL Errors
+
+**Problem**: SSL certificate verification errors
+
+**Solutions**:
+```bash
+# Upgrade pip and certificates
+pip install --upgrade pip
+
+# Temporary workaround (not recommended for production)
+pip install --trusted-host pypi.org --trusted-host pypi.python.org package_name
+
+# Use company proxy settings
+pip install --proxy http://user:pass@proxy.company.com:port package_name
+```
+
+### Verification Commands
+
+```bash
+# Test Python installation
+python -c "import sys; print(sys.version)"
+
+# Test key dependencies
+python -c "import openai; print('OpenAI:', openai.__version__)"
+python -c "import langchain; print('LangChain:', langchain.__version__)"
+python -c "import pinecone; print('Pinecone: OK')"
+python -c "import fastapi; print('FastAPI:', fastapi.__version__)"
+
+# Test backend startup
+cd backend
+python app.py
+# Should start without errors
+```
+
+## 🔄 Environment Switching & Management
+
+### Activate/Deactivate Environments
+
+```bash
+# Activate venv
+source venv/bin/activate  # macOS/Linux
+venv\Scripts\activate     # Windows
+
+# Deactivate any environment
+deactivate
+
+# Activate conda environment
+conda activate rag-chat
+
+# Deactivate conda environment
+conda deactivate
+```
+
+### Multiple Project Management
+
+```bash
+# Project 1: RAG Chat
+cd ~/projects/rag-chat
+source venv/bin/activate
+
+# Project 2: Other AI project
+cd ~/projects/other-ai
+source other-venv/bin/activate
+
+# Using conda for multiple projects
+conda create -n project1 python=3.11
+conda create -n project2 python=3.10
+```
+
+## 🚀 Quick Setup Scripts
+
+### Automated Environment Setup
+
+Create `setup_python.sh`:
+
 ```bash
 #!/bin/bash
-# fix_python.sh
+set -e
 
-echo "🔧 Python Environment Fix Tool"
-echo "=============================="
+echo "🐍 Setting up Python environment for RAG Chat App..."
 
-# Check current version
-CURRENT_VERSION=$(python3 -c "import sys; print('.'.join(map(str, sys.version_info[:2])))")
-echo "Current Python Version: $CURRENT_VERSION"
+# Check Python version
+PYTHON_VERSION=$(python3 --version 2>&1 | grep -o "3\.[0-9][0-9]*" | head -1)
+MAJOR=$(echo $PYTHON_VERSION | cut -d. -f1)
+MINOR=$(echo $PYTHON_VERSION | cut -d. -f2)
 
-# Check pyenv
-if command -v pyenv &> /dev/null; then
-    echo "✅ Found pyenv, installing Python 3.11..."
-    pyenv install 3.11.0 -s
-    pyenv local 3.11.0
-    echo "✅ Switched to Python 3.11"
+if [ "$MAJOR" -eq 3 ] && [ "$MINOR" -ge 8 ] && [ "$MINOR" -le 11 ]; then
+    echo "✅ Python $PYTHON_VERSION is compatible"
 else
-    echo "⚠️  pyenv not found, creating virtual environment..."
-    python3 -m venv venv --python=python3.11 2>/dev/null || {
-        echo "❌ Python 3.11 not installed on system"
-        echo "Please install Python 3.11 manually: https://python.org/"
-        exit 1
-    }
-    source venv/bin/activate
-    echo "✅ Created and activated virtual environment"
+    echo "❌ Python $PYTHON_VERSION is not compatible"
+    echo "Please install Python 3.8-3.11"
+    exit 1
 fi
 
-# Verify and install dependencies
-python --version
+# Create virtual environment
+echo "📦 Creating virtual environment..."
+python3 -m venv venv
+
+# Activate environment
+echo "🔌 Activating environment..."
+source venv/bin/activate
+
+# Upgrade pip
+echo "⬆️  Upgrading pip..."
+pip install --upgrade pip
+
+# Install dependencies
+echo "📚 Installing dependencies..."
 pip install -r backend/requirements.txt
 
-echo "🎉 Python environment setup complete!"
+echo "🎉 Setup complete! Activate with: source venv/bin/activate"
 ```
 
-**中文:**
+Make executable and run:
 ```bash
-#!/bin/bash
-# fix_python.sh
-
-echo "🔧 Python 环境修复工具"
-echo "===================="
-
-# 检查当前版本
-CURRENT_VERSION=$(python3 -c "import sys; print('.'.join(map(str, sys.version_info[:2])))")
-echo "当前 Python 版本: $CURRENT_VERSION"
-
-# 检查 pyenv
-if command -v pyenv &> /dev/null; then
-    echo "✅ 发现 pyenv，安装 Python 3.11..."
-    pyenv install 3.11.0 -s
-    pyenv local 3.11.0
-    echo "✅ 已切换到 Python 3.11"
-else
-    echo "⚠️  未发现 pyenv，创建虚拟环境..."
-    python3 -m venv venv --python=python3.11 2>/dev/null || {
-        echo "❌ 系统未安装 Python 3.11"
-        echo "请手动安装 Python 3.11: https://python.org/"
-        exit 1
-    }
-    source venv/bin/activate
-    echo "✅ 已创建并激活虚拟环境"
-fi
-
-# 验证并安装依赖
-python --version
-pip install -r backend/requirements.txt
-
-echo "🎉 Python 环境配置完成！"
+chmod +x setup_python.sh
+./setup_python.sh
 ```
 
-## ❗ Common Errors and Solutions | 常见错误及解决
+### Environment Health Check
 
-**English:**
+Create `check_env.py`:
 
-### Error 1: `No module named 'langchain'`
-```bash
-# Cause: Python version incompatibility
-# Solution: Switch to supported version
-pyenv local 3.11.0
-pip install langchain
+```python
+#!/usr/bin/env python3
+import sys
+import importlib
+
+def check_python_version():
+    version = sys.version_info
+    if 3.8 <= version.major == 3 <= version.minor <= 3.11:
+        print(f"✅ Python {version.major}.{version.minor}.{version.micro} - Compatible")
+        return True
+    else:
+        print(f"❌ Python {version.major}.{version.minor}.{version.micro} - Not compatible")
+        return False
+
+def check_package(package_name, import_name=None):
+    if import_name is None:
+        import_name = package_name
+    
+    try:
+        module = importlib.import_module(import_name)
+        version = getattr(module, '__version__', 'Unknown')
+        print(f"✅ {package_name}: {version}")
+        return True
+    except ImportError:
+        print(f"❌ {package_name}: Not installed")
+        return False
+
+if __name__ == "__main__":
+    print("🔍 RAG Chat App Environment Check\n")
+    
+    # Check Python version
+    python_ok = check_python_version()
+    print()
+    
+    # Check required packages
+    packages = [
+        ('OpenAI', 'openai'),
+        ('LangChain', 'langchain'),
+        ('FastAPI', 'fastapi'),
+        ('Uvicorn', 'uvicorn'),
+        ('Pinecone', 'pinecone'),
+        ('Sentence Transformers', 'sentence_transformers'),
+        ('HuggingFace Transformers', 'transformers'),
+    ]
+    
+    all_packages_ok = True
+    for package_name, import_name in packages:
+        if not check_package(package_name, import_name):
+            all_packages_ok = False
+    
+    print()
+    if python_ok and all_packages_ok:
+        print("🎉 Environment is ready for RAG Chat App!")
+    else:
+        print("⚠️  Environment needs attention. Please install missing components.")
+        if not python_ok:
+            print("   - Install compatible Python version (3.8-3.11)")
+        if not all_packages_ok:
+            print("   - Install missing packages: pip install -r backend/requirements.txt")
 ```
 
-### Error 2: `ERROR: Failed building wheel for xxx`
+Run the check:
 ```bash
-# Cause: Compilation dependency issues, usually occurs in Python 3.12+
-# Solution: Downgrade Python version
-pyenv install 3.11.0
-pyenv local 3.11.0
+python check_env.py
+```
+
+## 🆘 Emergency Fixes
+
+### Complete Environment Reset
+
+If everything is broken:
+
+```bash
+# Remove existing environment
+rm -rf venv
+
+# Clear pip cache
 pip cache purge
+
+# Reinstall from scratch
+python3 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
 pip install -r backend/requirements.txt
 ```
 
-### Error 3: `ImportError: cannot import name 'xxx' from 'langchain'`
-```bash
-# Cause: LangChain version doesn't match Python version
-# Solution: Use compatible version
-pip uninstall langchain -y
-pip install "langchain>=0.2,<0.3"
-```
+### Alternative Python Installation (Linux)
 
-**中文:**
+If system Python is problematic:
 
-### 错误1：`No module named 'langchain'`
 ```bash
-# 原因：Python 版本不兼容
-# 解决：切换到支持的版本
-pyenv local 3.11.0
-pip install langchain
-```
+# Install from deadsnakes PPA (Ubuntu)
+sudo add-apt-repository ppa:deadsnakes/ppa
+sudo apt update
+sudo apt install python3.11 python3.11-venv python3.11-pip
 
-### 错误2：`ERROR: Failed building wheel for xxx`
-```bash
-# 原因：编译依赖问题，通常在 Python 3.12+ 出现
-# 解决：降级 Python 版本
-pyenv install 3.11.0
-pyenv local 3.11.0
-pip cache purge
+# Use specific Python version
+python3.11 -m venv venv
+source venv/bin/activate
 pip install -r backend/requirements.txt
 ```
 
-### 错误3：`ImportError: cannot import name 'xxx' from 'langchain'`
+## 📋 Best Practices
+
+### Development Workflow
+
+1. **Always use virtual environments**
+2. **Pin dependency versions** in requirements.txt
+3. **Document environment setup** for team members
+4. **Regular dependency updates** with testing
+5. **Environment consistency** across development/production
+
+### Requirements Management
+
 ```bash
-# 原因：LangChain 版本与 Python 版本不匹配
-# 解决：使用兼容版本
-pip uninstall langchain -y
-pip install "langchain>=0.2,<0.3"
+# Generate current requirements
+pip freeze > requirements.txt
+
+# Install exact versions
+pip install -r requirements.txt
+
+# Update specific package
+pip install --upgrade package_name
+pip freeze > requirements.txt
+
+# Check for outdated packages
+pip list --outdated
 ```
 
-## 💡 Best Practices | 最佳实践
+### Security Considerations
 
-**English:**
-1. **Use project-specific environments**: Avoid global Python environment pollution
-2. **Pin versions**: Use `requirements.txt` to lock versions in production environments
-3. **Regular updates**: Monitor compatibility updates of dependency libraries
-4. **Test installations**: Run `./setup.sh` for verification after each environment switch
+```bash
+# Check for security vulnerabilities
+pip install safety
+safety check
 
-**中文:**
-1. **使用项目专用环境**：避免全局 Python 环境污染
-2. **固定版本**：在生产环境使用 `requirements.txt` 锁定版本
-3. **定期更新**：关注依赖库的兼容性更新
-4. **测试安装**：每次切换环境后运行 `./setup.sh` 验证
-
-## 🆘 Still Having Issues? | 仍然有问题？
-
-**English:**
-
-If the above methods still don't solve the problem, please:
-
-1. **View detailed error information**: `pip install -v`
-2. **Submit an Issue**: Include complete error logs
-3. **Community help**: Seek help in GitHub Discussions
-
-**中文:**
-
-如果按照上述方法仍无法解决，请：
-
-1. **查看详细错误信息**：`pip install -v`
-2. **提交 Issue**：附带完整的错误日志
-3. **社区求助**：在 GitHub Discussions 寻求帮助
+# Update packages with security fixes
+pip install --upgrade pip setuptools wheel
+pip install --upgrade -r requirements.txt
+```
 
 ---
 
-**English:** Remember: A correct Python environment is the foundation for successfully running RAG Chat App! 🚀
-
-**中文:** 记住: 正确的 Python 环境是成功运行 RAG Chat App 的基础！ 🚀
+**🎯 Ready to start?** Return to [Quick Start Guide](QUICK_START.md) to launch your RAG Chat App!
