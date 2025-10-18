@@ -1,11 +1,34 @@
 # RAG Chat App 🤖💬
 
+**Language / 语言**: [English](#english) | [中文](#中文)
+
+---
+
+## English
+
+A modern RAG (Retrieval Augmented Generation) chat application supporting multiple AI models and file upload capabilities. Built with React + FastAPI architecture, featuring beautiful glassmorphism UI design.
+
+> **🚀 New User?** Check out [5-Minute Quick Start Guide](QUICK_START.md) | **🛠️ Developer?** Continue reading full documentation
+
+---
+
+## 中文
+
 一个现代化的RAG（检索增强生成）聊天应用，支持多种AI模型和文件上传功能。采用React + FastAPI架构，具有优美的玻璃拟态UI设计。
 
 > **🚀 新用户？** 查看 [5分钟快速开始指南](QUICK_START.md) | **🛠️ 开发者？** 继续阅读完整文档
 
-## ✨ 功能特点
+## ✨ Features | 功能特点
 
+**English:**
+- 🎨 **Modern UI Design**: Premium glassmorphism interface with advanced visual effects
+- 🤖 **Multi-Model Support**: Compatible with GPT, Claude, Llava, and other AI models
+- 📁 **File Upload**: Support for PDF, images, and document intelligent Q&A
+- 🔍 **RAG Retrieval**: Smart document retrieval based on vector database
+- 💬 **Real-time Chat**: Streaming responses with typing animations
+- 🌐 **Cross-platform Deployment**: Docker containerization support
+
+**中文:**
 - 🎨 **现代化UI设计**：采用玻璃拟态效果的高端界面设计
 - 🤖 **多模型支持**：支持GPT、Claude、Llava等多种AI模型
 - 📁 **文件上传**：支持上传PDF、图片等文件进行智能问答
@@ -13,10 +36,21 @@
 - 💬 **实时聊天**：支持流式响应和打字效果
 - 🌐 **跨平台部署**：支持Docker容器化部署
 
-## 🚀 快速开始
+## 🚀 Quick Start | 快速开始
 
-### 系统要求
+### System Requirements | 系统要求
 
+**English:**
+- **Node.js** 18.0+ 
+- **Python** 3.8-3.11 ⚠️ **(Important: Python 3.12+ not supported due to LangChain compatibility issues)**
+- **Git**
+- **Docker** (Optional, for containerized deployment)
+
+> **📌 Python Version Note**: AI dependencies like LangChain have strict version requirements. Python 3.10 or 3.11 recommended for best compatibility.
+
+> **🚨 If your system has Python 3.12/3.13/3.14**: Run `./fix_python_env.sh` to auto-setup compatible environment, or check [Python Environment Guide](PYTHON_SETUP.md).
+
+**中文:**
 - **Node.js** 18.0+ 
 - **Python** 3.8-3.11 ⚠️ **(重要：不支持Python 3.12+，LangChain兼容性问题)**
 - **Git**
@@ -26,15 +60,45 @@
 
 > **🚨 如果您的系统是Python 3.12/3.13/3.14**: 请运行 `./fix_python_env.sh` 自动设置兼容环境，或查看 [Python环境配置指南](PYTHON_SETUP.md)。
 
-### 1. 克隆项目
+### 1. Clone Repository | 克隆项目
 
+**English:**
 ```bash
 git clone https://github.com/Ze-9527-0709/RAG-CHAT.git
 cd RAG-CHAT
 ```
 
-### 2. 环境配置
+**中文:**
+```bash
+git clone https://github.com/Ze-9527-0709/RAG-CHAT.git
+cd RAG-CHAT
+```
 
+### 2. Environment Setup | 环境配置
+
+**English:**
+Copy environment template and configure:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` file with your API keys:
+
+```env
+# OpenAI API Configuration
+OPENAI_API_KEY=your_openai_api_key_here
+
+# Pinecone Vector Database Configuration
+PINECONE_API_KEY=your_pinecone_api_key_here
+PINECONE_ENVIRONMENT=your_pinecone_environment
+
+# Other Settings
+BACKEND_PORT=8000
+FRONTEND_PORT=5173
+```
+
+**中文:**
 复制环境变量模板并配置：
 
 ```bash
@@ -56,7 +120,25 @@ BACKEND_PORT=8000
 FRONTEND_PORT=5173
 ```
 
-### 3. 安装依赖
+### 3. Install Dependencies | 安装依赖
+
+**English:**
+
+#### Backend Dependencies (Python)
+
+```bash
+cd backend
+pip install -r requirements.txt
+```
+
+#### Frontend Dependencies (Node.js)
+
+```bash
+cd frontend
+npm install
+```
+
+**中文:**
 
 #### 后端依赖 (Python)
 
@@ -72,7 +154,52 @@ cd frontend
 npm install
 ```
 
-### 4. 启动应用
+### 4. Launch Application | 启动应用
+
+**English:**
+
+#### Method 1: Manual Launch (Recommended for Development)
+
+**Start Backend:**
+```bash
+cd backend
+python app.py
+```
+Backend will start at http://localhost:8000
+
+**Start Frontend:**
+```bash
+cd frontend
+npm run dev
+```
+Frontend will start at http://localhost:5173
+
+#### Method 2: Script Launch
+
+```bash
+# Start all services
+chmod +x start.sh
+./start.sh
+
+# Stop all services
+chmod +x stop.sh
+./stop.sh
+```
+
+#### Method 3: Docker Containerized Deployment
+
+```bash
+# Build and start all services
+docker-compose up -d
+
+# Check service status
+docker-compose ps
+
+# Stop all services
+docker-compose down
+```
+
+**中文:**
 
 #### 方法一：手动启动 (推荐用于开发)
 
@@ -115,11 +242,34 @@ docker-compose ps
 docker-compose down
 ```
 
-### 5. 访问应用
+### 5. Access Application | 访问应用
 
+**English:**
+Open browser and visit: http://localhost:5173
+
+**中文:**
 打开浏览器访问：http://localhost:5173
 
-## 📋 使用说明
+## 📋 Usage Guide | 使用说明
+
+**English:**
+
+### Basic Chat
+1. Enter your question in the input box
+2. Click send button or press Enter key
+3. AI will provide real-time responses
+
+### File Upload
+1. Click 📎 button to select files
+2. Supported formats: PDF, PNG, JPG, JPEG
+3. Ask questions based on uploaded content
+
+### Model Switching
+1. Click model selector in top-right corner
+2. Choose different AI models
+3. Different models have different capabilities
+
+**中文:**
 
 ### 基础聊天
 1. 在输入框中输入您的问题
@@ -136,8 +286,36 @@ docker-compose down
 2. 选择不同的AI模型
 3. 不同模型具有不同的能力特点
 
-## 🛠️ 项目结构
+## 🛠️ Project Structure | 项目结构
 
+**English:**
+```
+RAG-Chat-App/
+├── 📁 frontend/              # React frontend app
+│   ├── src/
+│   │   ├── App.tsx          # Main React component
+│   │   ├── styles.css       # Glassmorphism styles
+│   │   └── main.tsx         # Entry file
+│   ├── package.json         # Frontend dependencies
+│   └── vite.config.ts       # Vite build config
+├── 📁 backend/               # FastAPI backend service
+│   ├── app.py              # Main application server
+│   ├── requirements.txt    # Python dependencies
+│   └── Dockerfile          # Backend container config
+├── 📁 ingest/               # Document ingestion service
+│   └── ingest.py           # Document processing script
+├── 📁 docs/                 # User documentation directory
+├── 📁 uploads/              # File upload storage
+├── 🐳 docker-compose.yml    # Container orchestration config
+├── ⚙️  .env.example          # Environment variables template
+├── 🚀 setup.sh              # Automated installation script
+├── 🔧 fix_python_env.sh     # Python environment fixer
+├── 📖 README.md             # Main project documentation
+├── 🚀 QUICK_START.md        # 5-minute quick start
+└── 🐍 PYTHON_SETUP.md       # Python environment guide
+```
+
+**中文:**
 ```
 RAG-Chat-App/
 ├── 📁 frontend/              # React前端应用
@@ -164,7 +342,24 @@ RAG-Chat-App/
 └── 🐍 PYTHON_SETUP.md       # Python环境指南
 ```
 
-## 🔧 高级配置
+## 🔧 Advanced Configuration | 高级配置
+
+**English:**
+
+### API Key Acquisition
+
+1. **OpenAI API Key**: Visit https://platform.openai.com/api-keys
+2. **Pinecone API Key**: Visit https://app.pinecone.io/
+
+### Custom Configuration
+
+Edit `.env` file to customize:
+- API endpoint URLs
+- Model parameters
+- Vector database configuration
+- Service port numbers
+
+**中文:**
 
 ### API密钥获取
 
@@ -179,8 +374,24 @@ RAG-Chat-App/
 - 向量数据库配置
 - 服务端口号
 
-### Docker部署选项
+### Docker Deployment Options | Docker部署选项
 
+**English:**
+```bash
+# Build without starting
+docker-compose build
+
+# Run in background
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Restart services
+docker-compose restart
+```
+
+**中文:**
 ```bash
 # 仅构建不启动
 docker-compose build
@@ -195,9 +406,48 @@ docker-compose logs -f
 docker-compose restart
 ```
 
-## 🐛 故障排除
+## 🐛 Troubleshooting | 故障排除
 
-### 常见问题
+### Common Issues | 常见问题
+
+**English:**
+
+**1. Port Already in Use**
+```bash
+# Check port usage
+lsof -i :5173
+lsof -i :8000
+
+# Kill occupying process
+kill -9 <PID>
+```
+
+**2. Dependency Installation Failed**
+```bash
+# First check Python version (Must be 3.8-3.11)
+python3 --version
+
+# LangChain related errors are usually version issues
+# Solution 1: Use pyenv to manage Python versions
+curl https://pyenv.run | bash
+pyenv install 3.11.0
+pyenv local 3.11.0
+
+# Solution 2: Use virtual environment
+python3 -m venv venv --python=python3.11
+source venv/bin/activate
+
+# Clear cache
+npm cache clean --force
+pip cache purge
+```
+
+**3. API Key Errors**
+- Check `.env` file configuration
+- Verify API key validity
+- Check backend logs for detailed error information
+
+**中文:**
 
 **1. 端口被占用**
 ```bash
@@ -234,8 +484,22 @@ pip cache purge
 - 确认API密钥的有效性
 - 查看后端日志获取详细错误信息
 
-### 日志查看
+### Log Viewing | 日志查看
 
+**English:**
+```bash
+# View backend logs
+tail -f backend.log
+
+# View frontend logs
+tail -f frontend.log
+
+# View Docker logs
+docker-compose logs backend
+docker-compose logs frontend
+```
+
+**中文:**
 ```bash
 # 查看后端日志
 tail -f backend.log
@@ -248,8 +512,18 @@ docker-compose logs backend
 docker-compose logs frontend
 ```
 
-## 🤝 贡献指南
+## 🤝 Contributing | 贡献指南
 
+**English:**
+Issues and Pull Requests are welcome!
+
+1. Fork the project
+2. Create feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to branch (`git push origin feature/AmazingFeature`)
+5. Create Pull Request
+
+**中文:**
 欢迎提交Issue和Pull Request！
 
 1. Fork本项目
@@ -258,15 +532,26 @@ docker-compose logs frontend
 4. 推送到分支 (`git push origin feature/AmazingFeature`)
 5. 创建Pull Request
 
-## 📄 许可证
+## 📄 License | 许可证
 
+**English:**
+This project is licensed under the MIT License. See [LICENSE](LICENSE) file for details.
+
+**中文:**
 本项目采用MIT许可证。详见 [LICENSE](LICENSE) 文件。
 
-## 📞 支持与联系
+## 📞 Support & Contact | 支持与联系
 
+**English:**
+- 🐛 **Bug Reports**: [GitHub Issues](https://github.com/Ze-9527-0709/RAG-CHAT/issues)
+- 💬 **Discussions**: [GitHub Discussions](https://github.com/Ze-9527-0709/RAG-CHAT/discussions)
+
+**中文:**
 - 🐛 **问题反馈**：[GitHub Issues](https://github.com/Ze-9527-0709/RAG-CHAT/issues)
 - 💬 **讨论交流**：[GitHub Discussions](https://github.com/Ze-9527-0709/RAG-CHAT/discussions)
 
 ---
 
-⭐ 如果这个项目对您有帮助，请给一个星星！
+**English:** ⭐ If this project helps you, please give it a star!
+
+**中文:** ⭐ 如果这个项目对您有帮助，请给一个星星！
