@@ -116,9 +116,7 @@ export default function App(){
   const abortRef = useRef<AbortController|null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   
-  // Model switch notification state
-  const [notification, setNotification] = useState<string>('')
-  const [showNotification, setShowNotification] = useState(false)
+
   
   // Image upload for chat
   const [selectedImage, setSelectedImage] = useState<File | null>(null)
@@ -199,28 +197,9 @@ export default function App(){
     }
   }
 
-  // Show notification with auto-dismiss
-  function showModelNotification(message: string) {
-    setNotification(message)
-    setShowNotification(true)
-    // Auto-dismiss after 4 seconds
-    setTimeout(() => {
-      setShowNotification(false)
-      setTimeout(() => setNotification(''), 300) // Clear after fade out
-    }, 4000)
-  }
 
-  // Show current model status on demand
-  function showCurrentModelStatus() {
-    if (currentModel) {
-      const isLocal = currentModel.model_name.includes('llama') || currentModel.tier === 'local-llama'
-      const icon = isLocal ? '🦙' : '☁️'
-      const selectionType = currentModel.is_user_selected ? 'manually selected' : 'auto-selected'
-      showModelNotification(`${icon} Currently using: ${currentModel.model_name} (${selectionType})`)
-    } else {
-      showModelNotification('ℹ️ No model currently selected')
-    }
-  }
+
+
 
   // Enhanced dropdown mouse handling
   function handleModelSelectorMouseEnter() {
@@ -281,24 +260,11 @@ export default function App(){
       if (response.ok) {
         setShowModelSelector(false)
         await fetchCurrentModel() // Refresh current model info
-        
-        // Find the selected model info for notification
-        const selectedModel = availableModels.find(m => m.id === modelId)
-        const modelName = selectedModel?.display_name || modelId
-        const statusIcon = selectedModel?.is_local ? '🦙' : 
-                          selectedModel?.status === 'ready' ? '☁️' : 
-                          selectedModel?.status === 'quota_exceeded' ? '🚫' : '⚠️'
-        
-        showModelNotification(`✅ Successfully switched to: ${statusIcon} ${modelName}`)
         console.log('✅ Model switched to:', modelId)
       } else {
-        const selectedModel = availableModels.find(m => m.id === modelId)
-        const modelName = selectedModel?.display_name || modelId
-        showModelNotification(`❌ Failed to switch to: ${modelName}`)
         console.error('Failed to switch model')
       }
     } catch (e) {
-      showModelNotification(`❌ Error switching model: ${e instanceof Error ? e.message : 'Unknown error'}`)
       console.error('Failed to select model:', e)
     }
   }
@@ -312,13 +278,11 @@ export default function App(){
       if (response.ok) {
         setShowModelSelector(false)
         await fetchCurrentModel() // Refresh current model info
-        showModelNotification('🔄 Auto mode enabled - system will select the best available model')
         console.log('✅ Auto model enabled')
       } else {
-        showModelNotification('❌ Failed to enable auto mode')
+        console.error('Failed to enable auto mode')
       }
     } catch (e) {
-      showModelNotification(`❌ Error enabling auto mode: ${e instanceof Error ? e.message : 'Unknown error'}`)
       console.error('Failed to enable auto model:', e)
     }
   }
@@ -329,15 +293,7 @@ export default function App(){
     fetchCurrentModel()
   }, [])
 
-  // Show current model notification when currentModel changes
-  useEffect(() => {
-    if (currentModel) {
-      const isLocal = currentModel.model_name.includes('llama') || currentModel.tier === 'local-llama'
-      const icon = isLocal ? '🦙' : '☁️'
-      const selectionType = currentModel.is_user_selected ? 'manually selected' : 'auto-selected'
-      showModelNotification(`${icon} Currently using: ${currentModel.model_name} (${selectionType})`)
-    }
-  }, [currentModel])
+
 
   // Cleanup mouse leave timeout on unmount
   useEffect(() => {
@@ -735,20 +691,7 @@ export default function App(){
 
   return (
     <div className="flex" style={{height:'100vh'}}>
-      {/* Model Switch Notification */}
-      {showNotification && (
-        <div 
-          className={`model-notification ${showNotification ? 'show' : ''}`}
-          onClick={() => {
-            setShowNotification(false)
-            setTimeout(() => setNotification(''), 300)
-          }}
-          style={{ cursor: 'pointer' }}
-          title="Click to dismiss"
-        >
-          {notification}
-        </div>
-      )}
+
       
       {/* Sidebar */}
       <div className="sidebar">
@@ -991,31 +934,6 @@ export default function App(){
                 title="Select AI Model"
               >
                 🤖 {currentModel ? currentModel.model_name : 'Select Model'}
-              </button>
-              <button 
-                className="btn model-status-btn" 
-                onClick={showCurrentModelStatus}
-                title={currentModel ? 
-                  `🤖 Active Model: ${currentModel.model_name}\n🔧 Selection: ${currentModel.is_user_selected ? 'Manual' : 'Automatic'}\n📍 Type: ${currentModel.model_name.includes('llama') || currentModel.tier === 'local-llama' ? 'Local (Llama)' : 'Cloud (OpenAI)'}\n\n💡 Click for detailed status` : 
-                  '⚠️ No model selected\n\n💡 Click to see available models'
-                }
-                data-status={currentModel ? (currentModel.is_user_selected ? 'manual' : 'auto') : 'none'}
-              >
-                <div className="model-status-content">
-                  <span className="status-icon">
-                    {currentModel ? (
-                      currentModel.model_name.includes('llama') || currentModel.tier === 'local-llama' ? '🦙' : '☁️'
-                    ) : '❓'}
-                  </span>
-                  <div className="status-details">
-                    <span className="status-label">Status</span>
-                    <span className="status-value">
-                      {currentModel ? (
-                        currentModel.is_user_selected ? 'Manual' : 'Auto'
-                      ) : 'Not Set'}
-                    </span>
-                  </div>
-                </div>
               </button>
               {showModelSelector && (
                 <div className="model-dropdown">
