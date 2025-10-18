@@ -22,10 +22,14 @@ cd RAG-CHAT
 - 选择LTS版本 (推荐 18.x+)
 - 安装后验证：`node -v`
 
-**🐍 Python** (后端语言)
+**🐍 Python** (后端语言) ⚠️ **版本重要**
 - 下载：https://python.org/
-- 选择 3.8+ 版本
-- 安装后验证：`python3 -v`
+- **推荐版本: 3.10 或 3.11** (最佳兼容性)
+- **支持范围: 3.8-3.11** 
+- **避免: Python 3.12+** (LangChain不兼容)
+- 安装后验证：`python3 --version`
+
+> 💡 **提示**: 如果已安装Python 3.12+，建议使用pyenv管理多版本
 
 ### 3️⃣ 获取API密钥 (免费)
 
@@ -114,10 +118,30 @@ kill -9 <进程ID>
 
 **问题：依赖安装失败**
 ```bash
-# 清理缓存重新安装
-npm cache clean --force
+# 检查Python版本
+python3 --version
+
+# 如果版本不兼容，安装正确版本
+# 方法1: 使用pyenv (推荐)
+curl https://pyenv.run | bash
+pyenv install 3.11.0
+pyenv local 3.11.0
+
+# 方法2: 清理缓存重新安装
 pip3 cache purge
+npm cache clean --force
 ./setup.sh
+```
+
+**问题：LangChain安装失败**
+```bash
+# 通常是Python版本问题
+python3 --version  # 确认版本在3.8-3.11之间
+
+# 如果版本过高，降级Python或使用虚拟环境
+python3 -m venv venv --python=python3.11
+source venv/bin/activate
+pip install -r backend/requirements.txt
 ```
 
 ### 🆘 获得帮助

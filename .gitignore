@@ -32,6 +32,28 @@ yarn-error.log
 *.log
 backend.log
 frontend.log
+backend_output.log
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+conversations.db
+
+# Test files
+test_*.py
+test_*.html
+test_*.js
+test_*.png
+test_*.jpg
+test_*.txt
+debug*.html
+debug*.py
+debug*.js
+diagnostic*.html
+*_test.*
+quick_test.*
+validate_*.js
 
 # Uploads
 backend/uploads/
@@ -40,3 +62,8 @@ uploads/
 # Build
 frontend/dist/
 frontend/build/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/

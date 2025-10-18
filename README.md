@@ -18,9 +18,13 @@
 ### 系统要求
 
 - **Node.js** 18.0+ 
-- **Python** 3.8+
+- **Python** 3.8-3.11 ⚠️ **(重要：不支持Python 3.12+，LangChain兼容性问题)**
 - **Git**
 - **Docker** (可选，用于容器化部署)
+
+> **📌 Python版本说明**: LangChain等AI依赖库对Python版本要求严格，推荐使用Python 3.10或3.11以获得最佳兼容性。
+
+> **🚨 如果您的系统是Python 3.12/3.13/3.14**: 请运行 `./fix_python_env.sh` 自动设置兼容环境，或查看 [Python环境配置指南](PYTHON_SETUP.md)。
 
 ### 1. 克隆项目
 
@@ -136,21 +140,28 @@ docker-compose down
 
 ```
 RAG-Chat-App/
-├── frontend/              # React前端应用
+├── 📁 frontend/              # React前端应用
 │   ├── src/
-│   │   ├── App.tsx       # 主要组件
-│   │   └── styles.css    # 样式文件
-│   ├── package.json
-│   └── vite.config.ts
-├── backend/              # FastAPI后端服务
-│   ├── app.py           # 主应用文件
-│   ├── requirements.txt # Python依赖
-│   └── Dockerfile
-├── docs/                # 文档存储目录
-├── uploads/             # 文件上传目录
-├── docker-compose.yml   # Docker配置
-├── .env.example        # 环境变量模板
-└── README.md           # 项目说明
+│   │   ├── App.tsx          # 主React组件
+│   │   ├── styles.css       # 玻璃拟态样式
+│   │   └── main.tsx         # 入口文件
+│   ├── package.json         # 前端依赖配置
+│   └── vite.config.ts       # Vite构建配置
+├── 📁 backend/               # FastAPI后端服务
+│   ├── app.py              # 主应用服务器
+│   ├── requirements.txt    # Python依赖列表
+│   └── Dockerfile          # 后端容器配置
+├── 📁 ingest/               # 文档摄取服务
+│   └── ingest.py           # 文档处理脚本
+├── 📁 docs/                 # 用户文档目录
+├── 📁 uploads/              # 文件上传存储
+├── 🐳 docker-compose.yml    # 容器编排配置
+├── ⚙️  .env.example          # 环境变量模板
+├── 🚀 setup.sh              # 自动安装脚本
+├── 🔧 fix_python_env.sh     # Python环境修复
+├── 📖 README.md             # 项目主文档
+├── 🚀 QUICK_START.md        # 5分钟快速开始
+└── 🐍 PYTHON_SETUP.md       # Python环境指南
 ```
 
 ## 🔧 高级配置
@@ -200,10 +211,21 @@ kill -9 <PID>
 
 **2. 依赖安装失败**
 ```bash
-# 清理npm缓存
-npm cache clean --force
+# 首先检查Python版本 (必须是3.8-3.11)
+python3 --version
 
-# 清理Python缓存
+# LangChain相关错误通常是版本问题
+# 解决方案1: 使用pyenv管理Python版本
+curl https://pyenv.run | bash
+pyenv install 3.11.0
+pyenv local 3.11.0
+
+# 解决方案2: 使用虚拟环境
+python3 -m venv venv --python=python3.11
+source venv/bin/activate
+
+# 清理缓存
+npm cache clean --force
 pip cache purge
 ```
 
