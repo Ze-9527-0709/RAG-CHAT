@@ -1,34 +1,34 @@
 #!/bin/bash
 
-# RAG Chat App 停止脚本
-# 使用方法: ./stop.sh
+# RAG Chat App Stop Script
+# Usage: ./stop.sh
 
-echo "🛑 停止 RAG Chat App..."
+echo "🛑 Stopping RAG Chat App..."
 
-# 停止前端
-echo "停止前端服务..."
+# Stop frontend
+echo "Stopping frontend service..."
 pkill -f "vite"
 
-# 停止后端
-echo "停止后端服务..."
+# Stop backend
+echo "Stopping backend service..."
 pkill -f "uvicorn"
 
 sleep 2
 
-# 检查是否成功停止
+# Check if successfully stopped
 lsof -i :5173 -t >/dev/null 2>&1
 if [ $? -eq 0 ]; then
-    echo "⚠️  前端进程仍在运行"
+    echo "⚠️  Frontend process still running"
 else
-    echo "✅ 前端已停止"
+    echo "✅ Frontend stopped"
 fi
 
 lsof -i :8000 -t >/dev/null 2>&1
 if [ $? -eq 0 ]; then
-    echo "⚠️  后端进程仍在运行"
+    echo "⚠️  Backend process still running"
 else
-    echo "✅ 后端已停止"
+    echo "✅ Backend stopped"
 fi
 
 echo ""
-echo "🎯 所有服务已停止"
+echo "🎯 All services stopped"

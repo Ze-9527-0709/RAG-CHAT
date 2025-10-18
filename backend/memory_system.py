@@ -1,6 +1,6 @@
 """
-AI记忆和学习系统
-通过对话不断成长的AI助手核心组件
+AI Memory and Learning System
+Core component for AI assistant that grows through conversations
 """
 import json
 import sqlite3
@@ -10,14 +10,14 @@ import hashlib
 from pathlib import Path
 
 class ConversationMemory:
-    """对话记忆系统 - 让AI从每次对话中学习"""
+    """Conversation memory system - let AI learn from every conversation"""
     
     def __init__(self, db_path: str = "memory.db"):
         self.db_path = Path(db_path)
         self.init_database()
     
     def init_database(self):
-        """初始化记忆数据库"""
+        """Initialize memory database"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
@@ -83,7 +83,7 @@ class ConversationMemory:
     def store_conversation(self, session_id: str, user_message: str, 
                           assistant_response: str, context_used: str = None,
                           topics: List[str] = None, sentiment: float = 0.5) -> str:
-        """存储对话记录"""
+        """Store conversation record"""
         conversation_id = hashlib.md5(
             f"{session_id}_{user_message}_{datetime.now().isoformat()}".encode()
         ).hexdigest()
@@ -109,7 +109,7 @@ class ConversationMemory:
     
     def _learn_from_conversation(self, conversation_id: str, user_message: str, 
                                assistant_response: str, topics: List[str] = None):
-        """从对话中学习新知识"""
+        """Learn new knowledge from conversations"""
         # 提取概念和模式
         concepts = self._extract_concepts(user_message, assistant_response)
         
@@ -140,11 +140,11 @@ class ConversationMemory:
         conn.close()
     
     def _extract_concepts(self, user_message: str, assistant_response: str) -> Dict[str, str]:
-        """从对话中提取概念（简单实现，可用NLP增强）"""
+        """Extract concepts from conversation (simple implementation, can be enhanced with NLP)"""
         concepts = {}
         
         # 简单的关键词提取
-        keywords = ['如何', '什么是', '怎么', '为什么', '方法', '步骤', '技巧']
+        keywords = ['how', 'what is', 'how to', 'why', 'method', 'steps', 'technique']
         
         for keyword in keywords:
             if keyword in user_message:
@@ -156,7 +156,7 @@ class ConversationMemory:
         return concepts
     
     def get_relevant_memory(self, query: str, session_id: str = None, limit: int = 5) -> List[Dict]:
-        """获取相关的记忆"""
+        """Get relevant memories"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
@@ -198,7 +198,7 @@ class ConversationMemory:
         return results
     
     def add_feedback(self, conversation_id: str, feedback_type: str, content: str):
-        """添加用户反馈"""
+        """Add user feedback"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
@@ -214,7 +214,7 @@ class ConversationMemory:
         self._learn_from_feedback(conversation_id, feedback_type, content)
     
     def _learn_from_feedback(self, conversation_id: str, feedback_type: str, content: str):
-        """从用户反馈中学习"""
+        """Learn from user feedback"""
         # 根据反馈调整知识confidence_score
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -238,7 +238,7 @@ class ConversationMemory:
         conn.close()
     
     def get_learning_stats(self) -> Dict[str, Any]:
-        """获取学习统计"""
+        """Get learning statistics"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
@@ -276,13 +276,13 @@ class ConversationMemory:
         }
 
 class AdaptivePersonality:
-    """自适应个性系统 - 根据用户互动调整回应风格"""
+    """Adaptive personality system - adjust response style based on user interaction"""
     
     def __init__(self, memory: ConversationMemory):
         self.memory = memory
     
     def analyze_user_style(self, session_id: str) -> Dict[str, float]:
-        """分析用户的交流风格"""
+        """Analyze user's communication style"""
         conn = sqlite3.connect(self.memory.db_path)
         cursor = conn.cursor()
         
@@ -304,8 +304,8 @@ class AdaptivePersonality:
         avg_length = total_chars / len(messages)
         
         # 正式度分析
-        formal_words = ['请', '您', '谢谢', '麻烦']
-        informal_words = ['嗯', '哈', '呀', '吧']
+        formal_words = ['please', 'you', 'thank', 'kindly']
+        informal_words = ['hmm', 'haha', 'yeah', 'ok']
         
         formal_score = sum(1 for msg in messages for word in formal_words if word in msg)
         informal_score = sum(1 for msg in messages for word in informal_words if word in msg)
@@ -319,19 +319,19 @@ class AdaptivePersonality:
         }
     
     def adapt_response_style(self, base_response: str, user_style: Dict[str, float]) -> str:
-        """根据用户风格调整回应"""
+        """Adjust response based on user style"""
         adapted_response = base_response
         
         # 根据正式度调整
         if user_style['formality'] > 0.7:
-            adapted_response = adapted_response.replace('你', '您')
-            adapted_response += "\n\n如有其他需要，请随时告诉我。"
+            adapted_response = adapted_response.replace('you', 'You')
+            adapted_response += "\n\nIf you have any other needs, please feel free to let me know."
         elif user_style['formality'] < 0.3:
             adapted_response += " 😊"
         
         # 根据详细程度调整
         if user_style['detail_level'] > 0.7:
-            adapted_response += "\n\n需要我进一步详细解释任何部分吗？"
+            adapted_response += "\n\nWould you like me to explain any part in more detail?"
         
         return adapted_response
 
@@ -344,14 +344,14 @@ if __name__ == "__main__":
     # 存储对话
     conv_id = memory.store_conversation(
         "user123", 
-        "如何让AI助手变得更智能？", 
-        "可以通过多种方法：1. 持续学习对话历史 2. 收集用户反馈...",
-        topics=["AI学习", "智能化"]
+        "How to make AI assistant smarter?", 
+        "Can be achieved through multiple methods: 1. Continuous learning from conversation history 2. Collecting user feedback...",
+        topics=["AI learning", "Intelligence"]
     )
     
-    # 添加反馈
-    memory.add_feedback(conv_id, "positive", "回答很有帮助")
+    # Add feedback
+    memory.add_feedback(conv_id, "positive", "Very helpful response")
     
     # 获取学习统计
     stats = memory.get_learning_stats()
-    print("学习统计:", stats)
+    print("Learning statistics:", stats)

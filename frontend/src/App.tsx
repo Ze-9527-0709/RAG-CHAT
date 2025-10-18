@@ -116,9 +116,7 @@ export default function App(){
   const abortRef = useRef<AbortController|null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   
-  // Model switch notification state
-  const [notification, setNotification] = useState<string>('')
-  const [showNotification, setShowNotification] = useState(false)
+
   
   // Image upload for chat
   const [selectedImage, setSelectedImage] = useState<File | null>(null)
@@ -199,28 +197,9 @@ export default function App(){
     }
   }
 
-  // Show notification with auto-dismiss
-  function showModelNotification(message: string) {
-    setNotification(message)
-    setShowNotification(true)
-    // Auto-dismiss after 4 seconds
-    setTimeout(() => {
-      setShowNotification(false)
-      setTimeout(() => setNotification(''), 300) // Clear after fade out
-    }, 4000)
-  }
 
-  // Show current model status on demand
-  function showCurrentModelStatus() {
-    if (currentModel) {
-      const isLocal = currentModel.model_name.includes('llama') || currentModel.tier === 'local-llama'
-      const icon = isLocal ? '🦙' : '☁️'
-      const selectionType = currentModel.is_user_selected ? 'manually selected' : 'auto-selected'
-      showModelNotification(`${icon} Currently using: ${currentModel.model_name} (${selectionType})`)
-    } else {
-      showModelNotification('ℹ️ No model currently selected')
-    }
-  }
+
+
 
   // Enhanced dropdown mouse handling
   function handleModelSelectorMouseEnter() {
@@ -247,6 +226,7 @@ export default function App(){
       const data = await response.json();
       const models: ModelInfo[] = data.models || data; // Handle both {models: []} and [] formats
       console.log('🎯 Processed models:', models.length, 'models loaded');
+      console.log('🔍 Available models data:', models);
       setAvailableModels(models);
       
       // Also fetch current model info
@@ -280,24 +260,11 @@ export default function App(){
       if (response.ok) {
         setShowModelSelector(false)
         await fetchCurrentModel() // Refresh current model info
-        
-        // Find the selected model info for notification
-        const selectedModel = availableModels.find(m => m.id === modelId)
-        const modelName = selectedModel?.display_name || modelId
-        const statusIcon = selectedModel?.is_local ? '🦙' : 
-                          selectedModel?.status === 'ready' ? '☁️' : 
-                          selectedModel?.status === 'quota_exceeded' ? '🚫' : '⚠️'
-        
-        showModelNotification(`✅ Successfully switched to: ${statusIcon} ${modelName}`)
         console.log('✅ Model switched to:', modelId)
       } else {
-        const selectedModel = availableModels.find(m => m.id === modelId)
-        const modelName = selectedModel?.display_name || modelId
-        showModelNotification(`❌ Failed to switch to: ${modelName}`)
         console.error('Failed to switch model')
       }
     } catch (e) {
-      showModelNotification(`❌ Error switching model: ${e instanceof Error ? e.message : 'Unknown error'}`)
       console.error('Failed to select model:', e)
     }
   }
@@ -311,13 +278,11 @@ export default function App(){
       if (response.ok) {
         setShowModelSelector(false)
         await fetchCurrentModel() // Refresh current model info
-        showModelNotification('🔄 Auto mode enabled - system will select the best available model')
         console.log('✅ Auto model enabled')
       } else {
-        showModelNotification('❌ Failed to enable auto mode')
+        console.error('Failed to enable auto mode')
       }
     } catch (e) {
-      showModelNotification(`❌ Error enabling auto mode: ${e instanceof Error ? e.message : 'Unknown error'}`)
       console.error('Failed to enable auto model:', e)
     }
   }
@@ -328,15 +293,7 @@ export default function App(){
     fetchCurrentModel()
   }, [])
 
-  // Show current model notification when currentModel changes
-  useEffect(() => {
-    if (currentModel) {
-      const isLocal = currentModel.model_name.includes('llama') || currentModel.tier === 'local-llama'
-      const icon = isLocal ? '🦙' : '☁️'
-      const selectionType = currentModel.is_user_selected ? 'manually selected' : 'auto-selected'
-      showModelNotification(`${icon} Currently using: ${currentModel.model_name} (${selectionType})`)
-    }
-  }, [currentModel])
+
 
   // Cleanup mouse leave timeout on unmount
   useEffect(() => {
@@ -426,11 +383,21 @@ export default function App(){
           formData.append('stream', 'true')
           formData.append('image', selectedImage)
           
+          console.log('🖼️ Sending image upload request:', {
+            sessionId: currentId,
+            message: text,
+            imageName: selectedImage.name,
+            imageSize: selectedImage.size
+          })
+          
           resp = await fetch('/api/chat_stream_with_image', {
             method: 'POST',
             body: formData,
             signal: controller.signal
           })
+          
+          console.log('📥 Image upload response status:', resp.status, resp.ok)
+          console.log('📋 Response headers:', Object.fromEntries(resp.headers.entries()))
         } else {
           // Regular JSON request
           resp = await fetch('/api/chat_stream', {
@@ -441,6 +408,8 @@ export default function App(){
           })
         }
         if(!resp.ok) throw new Error(`HTTP ${resp.status}`)
+        
+        console.log('🌊 Starting stream processing for image upload...')
         const reader = resp.body!.getReader()
         const decoder = new TextDecoder('utf-8')
         let buffer = ''
@@ -467,7 +436,51 @@ export default function App(){
             break
           }
           
-          buffer += decoder.decode(value, {stream:true})
+            buffer += decoder.decode(value, {stream:true})
+          
+            // Handle malformed SSE chunks that don't end with \n\n
+            // Check if buffer contains data lines without proper event structure
+            if(buffer.includes('data:') && !buffer.includes('\n\n')){
+              // Split by individual lines to handle malformed chunks
+              const lines = buffer.split('\n')
+              const processedLines: number[] = []
+              let remainder = ''
+              
+              for(let i = 0; i < lines.length; i++){
+                const line = lines[i].trim()
+                if(line.startsWith('data:') && !line.includes('event:')){
+                  // This is a malformed individual data chunk
+                  const rawData = line.slice(5) // Remove "data:"
+                  const cleanData = rawData.startsWith(' ') ? rawData.slice(1) : rawData
+                  if(cleanData) {
+                    console.log('🔧 Processing individual malformed chunk:', JSON.stringify(cleanData))
+                    
+                    updateCurrentMessages(msgs => {
+                      if (!botMessageAdded) {
+                        botMessageAdded = true
+                        return [...msgs, { who: 'bot' as const, text: cleanData }]
+                      } else {
+                        const lastIndex = msgs.length - 1
+                        return msgs.map((mm, idx) => 
+                          idx === lastIndex && mm.who === 'bot' 
+                            ? {...mm, text: mm.text + cleanData} 
+                            : mm
+                        )
+                      }
+                    })
+                  }
+                  processedLines.push(i)
+                }
+              }
+              
+              // Remove processed lines from buffer
+              if(processedLines.length > 0){
+                const remainingLines = lines.filter((_, i) => !processedLines.includes(i))
+                buffer = remainingLines.join('\n')
+              }
+            }
+          
+            // Normal SSE processing for properly formatted events
             const parts = buffer.split('\n\n')
             buffer = parts.pop() || ''
             for(const raw of parts){
@@ -480,9 +493,13 @@ export default function App(){
                 else if(ln.startsWith('data:')) {
                   // Extract data content, remove the first space after "data:", but keep spaces within tokens
                   const rawData = ln.slice(5) // Remove "data:"
-                  data = rawData.startsWith(' ') ? rawData.slice(1) : rawData
+                  data += rawData.startsWith(' ') ? rawData.slice(1) : rawData
                 }
               }
+              
+              // Debug: Log every event and data we receive
+              console.log('🔍 Raw event part:', JSON.stringify(raw))
+              console.log('🎯 Parsed - Event:', event, 'Data:', JSON.stringify(data))
               if(event === 'citations'){
                 // Skip citations - we don't want to display them
                 continue
@@ -499,21 +516,33 @@ export default function App(){
               }
               if(data){
                 // Add the data chunk - add bot message if this is the first chunk
-                console.log('Streaming chunk:', JSON.stringify(data))
+                console.log('📝 Processing streaming chunk:', JSON.stringify(data))
+                console.log('🤖 Bot message added status:', botMessageAdded)
+                
+                // Force a state update to ensure message appears in UI
                 updateCurrentMessages(msgs => {
+                  console.log('📝 Current messages before update:', msgs.length)
+                  let newMessages;
+                  
                   if (!botMessageAdded) {
                     // First chunk - add new bot message
                     botMessageAdded = true
-                    return [...msgs, { who: 'bot', text: data }]
+                    console.log('➕ Adding first bot message with data:', JSON.stringify(data))
+                    newMessages = [...msgs, { who: 'bot' as const, text: data }]
                   } else {
                     // Subsequent chunks - append to last bot message
                     const lastIndex = msgs.length - 1
-                    return msgs.map((mm, idx) => 
+                    console.log('➕ Appending to existing bot message at index:', lastIndex)
+                    newMessages = msgs.map((mm, idx) => 
                       idx === lastIndex && mm.who === 'bot' 
                         ? {...mm, text: mm.text + data} 
                         : mm
                     )
                   }
+                  
+                  console.log('🔄 Updated messages count:', newMessages.length)
+                  console.log('🔄 Last message preview:', newMessages[newMessages.length - 1]?.text?.substring(0, 50) + '...')
+                  return newMessages
                 })
               }
             }
@@ -662,20 +691,7 @@ export default function App(){
 
   return (
     <div className="flex" style={{height:'100vh'}}>
-      {/* Model Switch Notification */}
-      {showNotification && (
-        <div 
-          className={`model-notification ${showNotification ? 'show' : ''}`}
-          onClick={() => {
-            setShowNotification(false)
-            setTimeout(() => setNotification(''), 300)
-          }}
-          style={{ cursor: 'pointer' }}
-          title="Click to dismiss"
-        >
-          {notification}
-        </div>
-      )}
+
       
       {/* Sidebar */}
       <div className="sidebar">
@@ -919,35 +935,11 @@ export default function App(){
               >
                 🤖 {currentModel ? currentModel.model_name : 'Select Model'}
               </button>
-              <button 
-                className="btn model-status-btn" 
-                onClick={showCurrentModelStatus}
-                title={currentModel ? 
-                  `🤖 Active Model: ${currentModel.model_name}\n🔧 Selection: ${currentModel.is_user_selected ? 'Manual' : 'Automatic'}\n📍 Type: ${currentModel.model_name.includes('llama') || currentModel.tier === 'local-llama' ? 'Local (Llama)' : 'Cloud (OpenAI)'}\n\n💡 Click for detailed status` : 
-                  '⚠️ No model selected\n\n💡 Click to see available models'
-                }
-                data-status={currentModel ? (currentModel.is_user_selected ? 'manual' : 'auto') : 'none'}
-              >
-                <div className="model-status-content">
-                  <span className="status-icon">
-                    {currentModel ? (
-                      currentModel.model_name.includes('llama') || currentModel.tier === 'local-llama' ? '🦙' : '☁️'
-                    ) : '❓'}
-                  </span>
-                  <div className="status-details">
-                    <span className="status-label">Status</span>
-                    <span className="status-value">
-                      {currentModel ? (
-                        currentModel.is_user_selected ? 'Manual' : 'Auto'
-                      ) : 'Not Set'}
-                    </span>
-                  </div>
-                </div>
-              </button>
               {showModelSelector && (
                 <div className="model-dropdown">
                   <div style={{padding: '4px 8px', fontSize: '10px', color: '#666', borderBottom: '1px solid #eee'}}>
                     Models loaded: {availableModels.length}
+                    {availableModels.length === 0 && <div style={{color: 'red'}}>⚠️ No models found!</div>}
                   </div>
                   <div className="model-option auto-option">
                     <button 
