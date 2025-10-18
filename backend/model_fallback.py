@@ -206,14 +206,20 @@ class ModelFallbackManager:
             config = MODEL_CONFIGS[tier]
             estimated_cost = (estimated_tokens / 1000) * config.cost_per_1k_tokens
             
-            # Check cached quota info
-            if self.quota_cache.get('remaining_balance', 0) < self.min_balance_threshold:
-                logger.debug(f"Insufficient balance for {tier.value}")
-                return False
-            
-            if estimated_cost > self.quota_cache.get('remaining_balance', 0):
-                logger.debug(f"Estimated cost ${estimated_cost:.4f} exceeds balance")
-                return False
+            # Check cached quota info only if we have valid quota data
+            remaining_balance = self.quota_cache.get('remaining_balance')
+            if remaining_balance is not None and remaining_balance > 0:
+                # Only enforce quota limits if we have valid quota information
+                if remaining_balance < self.min_balance_threshold:
+                    logger.debug(f"Insufficient balance ${remaining_balance:.2f} for {tier.value}")
+                    return False
+                
+                if estimated_cost > remaining_balance:
+                    logger.debug(f"Estimated cost ${estimated_cost:.4f} exceeds balance ${remaining_balance:.2f}")
+                    return False
+            else:
+                # If no quota information available, allow model usage but log warning
+                logger.warning(f"No quota information available for {tier.value}, allowing usage")
             
             return True
             

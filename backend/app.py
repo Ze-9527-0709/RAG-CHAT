@@ -16,6 +16,12 @@ from model_fallback import ModelFallbackManager, ModelTier, MODEL_CONFIGS, Model
 # ---- 环境变量 ----
 load_dotenv()
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+# ---- AI Agent 身份配置 ----
+AI_AGENT_NAME = os.getenv("AI_AGENT_NAME", "AUV")
+AI_AGENT_PERSONALITY = os.getenv("AI_AGENT_PERSONALITY", 
+    f"I am {AI_AGENT_NAME}, an intelligent AI assistant. I have a helpful, professional, and knowledgeable personality.")
+
 # Initialize OpenAI client with graceful handling of missing API key
 openai_api_key = os.getenv("OPENAI_API_KEY")
 if openai_api_key:
@@ -29,7 +35,7 @@ else:
 model_manager = ModelFallbackManager(client)
 
 # ---- RAG 组件（Pinecone + LangChain）----
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_openai import OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
 from pinecone import Pinecone
 
@@ -51,8 +57,11 @@ def init_vectorstore():
         pinecone_index = pc.Index(INDEX_NAME)
         
         # Initialize embeddings
-        from langchain_huggingface import HuggingFaceEmbeddings
-        embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+        from langchain_openai import OpenAIEmbeddings
+        embeddings = OpenAIEmbeddings(
+            model=EMBEDDING_MODEL,
+            openai_api_key=os.environ.get("OPENAI_API_KEY")
+        )
         
         vectorstore = PineconeVectorStore(
             index=pinecone_index, 
@@ -68,6 +77,9 @@ def init_vectorstore():
 
 # ---- 记忆和学习系统 ----
 from memory_system import ConversationMemory, AdaptivePersonality
+
+# ---- AI Agent 身份管理系统 ----
+from agent_identity import AgentIdentityManager, get_agent_identity_prompt, update_agent_name
 
 # ---- FastAPI 与内存会话 ----
 app = FastAPI(title="RAG Chat Backend", version="1.0")
@@ -85,9 +97,10 @@ async def startup_event():
 
 SESSIONS: Dict[str, List[Dict[str, str]]] = {}
 
-# 初始化记忆系统
+# 初始化记忆和身份系统
 memory_system = ConversationMemory("conversations.db")
 personality_system = AdaptivePersonality(memory_system)
+agent_identity = AgentIdentityManager("agent_identity.db")
 
 class ChatRequest(BaseModel):
     session_id: str
@@ -143,10 +156,13 @@ async def chat(req: ChatRequest):
     # 1) 检索上下文
     context, _ = retrieve_context(req.message, k=4)  # 忽略citations
     
+    # 使用身份管理系统构建身份提示词
+    base_identity = get_agent_identity_prompt()
+    
     if context and context.strip():
         # 有相关知识库内容，使用RAG模式
         instruction = (
-            "You are a helpful AI assistant. Use the Retrieved Context to answer the question when relevant. "
+            f"{base_identity} Use the Retrieved Context to answer the question when relevant. "
             "If the context contains relevant information, prioritize it in your answer. "
             "If the context is not relevant or helpful, you can also use your general knowledge to provide a helpful response."
         )
@@ -154,7 +170,7 @@ async def chat(req: ChatRequest):
     else:
         # 没有相关知识库内容，使用普通对话模式
         instruction = (
-            "You are a helpful AI assistant. Answer questions using your knowledge and capabilities. "
+            f"{base_identity} Answer questions using your knowledge and capabilities. "
             "Be conversational, helpful, and informative."
         )
         system_prompt = instruction
@@ -287,10 +303,13 @@ async def chat_stream(req: StreamChatRequest):
     # Build context
     context, _ = retrieve_context(req.message, k=4)  # 忽略citations
     
+    # 使用身份管理系统构建身份提示词  
+    base_identity = get_agent_identity_prompt()
+    
     if context and context.strip():
         # 有相关知识库内容，使用RAG模式
         instruction = (
-            "You are a helpful AI assistant. Use the Retrieved Context to answer the question when relevant. "
+            f"{base_identity} Use the Retrieved Context to answer the question when relevant. "
             "If the context contains relevant information, prioritize it in your answer. "
             "If the context is not relevant or helpful, you can also use your general knowledge to provide a helpful response."
         )
@@ -298,7 +317,7 @@ async def chat_stream(req: StreamChatRequest):
     else:
         # 没有相关知识库内容，使用普通对话模式
         instruction = (
-            "You are a helpful AI assistant. Answer questions using your knowledge and capabilities. "
+            f"{base_identity} Answer questions using your knowledge and capabilities. "
             "Be conversational, helpful, and informative."
         )
         system_prompt = instruction
@@ -459,6 +478,65 @@ async def get_model_status():
         "quota_cache": model_manager.quota_cache,
         "failure_counts": {k.value: v for k, v in model_manager.failure_counts.items()}
     }
+
+@app.get("/api/agent_identity")
+async def get_agent_identity():
+    """Get AI agent identity information"""
+    current_identity = agent_identity.get_current_identity()
+    core_memories = agent_identity.get_core_memories()
+    
+    return {
+        "current_identity": current_identity,
+        "core_memories": core_memories,
+        "full_identity_prompt": get_agent_identity_prompt(),
+        "personality_evolution": agent_identity.get_personality_evolution()
+    }
+
+class AgentIdentityUpdate(BaseModel):
+    name: str
+    personality: str
+    core_traits: dict = {}
+
+@app.post("/api/agent_identity")
+async def update_agent_identity(identity: AgentIdentityUpdate):
+    """Update AI agent identity (permanently stored in database)"""
+    try:
+        agent_identity.set_identity(
+            name=identity.name,
+            personality=identity.personality,
+            core_traits=identity.core_traits
+        )
+        
+        return {
+            "success": True,
+            "message": f"Agent identity permanently updated. Name: {identity.name}",
+            "new_identity": agent_identity.get_current_identity()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update identity: {str(e)}")
+
+class CoreMemoryAdd(BaseModel):
+    memory_type: str  # 'identity', 'creator', 'purpose', 'relationship'
+    content: str
+    importance: int = 10
+
+@app.post("/api/agent_memory")
+async def add_core_memory(memory: CoreMemoryAdd):
+    """Add a core memory that the agent will never forget"""
+    try:
+        agent_identity.add_core_memory(
+            memory_type=memory.memory_type,
+            content=memory.content, 
+            importance=memory.importance
+        )
+        
+        return {
+            "success": True,
+            "message": "Core memory added successfully",
+            "memory": memory.dict()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to add memory: {str(e)}")
 
 def _get_model_display_name(tier: ModelTier, config: ModelConfig) -> str:
     """Get user-friendly display name for model"""

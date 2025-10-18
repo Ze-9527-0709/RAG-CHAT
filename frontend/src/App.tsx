@@ -6,7 +6,11 @@ import remarkGfm from 'remark-gfm'
 
 // Data model types
 type ChatResp = { answer: string }
-type Msg = { who:'user'|'bot'; text:string }
+type Msg = { 
+  who:'user'|'bot'; 
+  text:string; 
+  id?: string;
+}
 type Session = { id:string; name:string; created:number; messages: Msg[] }
 
 // Model selection types
@@ -73,15 +77,25 @@ export default function App(){
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([])
   const [currentModel, setCurrentModel] = useState<CurrentModel | null>(null)
   const [showModelSelector, setShowModelSelector] = useState(false)
-  const mouseLeaveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const [isModelSwitching, setIsModelSwitching] = useState(false)
 
   // Persist sessions & current pointer
   useEffect(()=>{ localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions)) }, [sessions])
   useEffect(()=>{ localStorage.setItem(CURRENT_KEY, currentId) }, [currentId])
 
-  // Helper to mutate current session messages
+  // Helper to mutate current session messages (simplified for reliability)
   function updateCurrentMessages(mutator:(msgs:Msg[])=>Msg[]){
-    setSessions(all => all.map(s => s.id===currentId ? {...s, messages: mutator(s.messages)} : s))
+    setSessions(all => {
+      const targetIndex = all.findIndex(s => s.id === currentId)
+      if (targetIndex === -1) return all
+      
+      const targetSession = all[targetIndex]
+      const newMessages = mutator(targetSession.messages)
+      
+      const newAll = [...all]
+      newAll[targetIndex] = {...targetSession, messages: newMessages}
+      return newAll
+    })
   }
 
   // Session management
@@ -110,11 +124,11 @@ export default function App(){
   const [loading, setLoading] = useState(false)
   const [useStream, setUseStream] = useState(true)
   const [uploading, setUploading] = useState(false)
-  const [uploadStatus, setUploadStatus] = useState<string>('')
   const inputRef = useRef<HTMLInputElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController|null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const modelSelectorRef = useRef<HTMLDivElement>(null)
   
 
   
@@ -201,19 +215,9 @@ export default function App(){
 
 
 
-  // Enhanced dropdown mouse handling
-  function handleModelSelectorMouseEnter() {
-    if (mouseLeaveTimeoutRef.current) {
-      clearTimeout(mouseLeaveTimeoutRef.current)
-      mouseLeaveTimeoutRef.current = null
-    }
-  }
-
-  function handleModelSelectorMouseLeave() {
-    // Add a small delay before closing to prevent accidental closure
-    mouseLeaveTimeoutRef.current = setTimeout(() => {
-      setShowModelSelector(false)
-    }, 200) // 200ms delay
+  // Simplified dropdown handling - click only (no mouse hover auto-close)
+  function handleDropdownToggle() {
+    setShowModelSelector(prev => !prev)
   }
 
   // 🤖 Model selection related functions
@@ -252,38 +256,85 @@ export default function App(){
 
   async function selectModel(modelId: string) {
     try {
+      // Close dropdown immediately when user makes a choice
+      setShowModelSelector(false)
+      setIsModelSwitching(true)
+      
+      console.log('🔄 Attempting to select model:', modelId)
+      
       const response = await fetch('/api/models/select', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model_id: modelId })
       })
+      
       if (response.ok) {
-        setShowModelSelector(false)
-        await fetchCurrentModel() // Refresh current model info
-        console.log('✅ Model switched to:', modelId)
+        const data = await response.json()
+        console.log('✅ Model selection response:', data)
+        
+        // Update current model from response instead of making another request
+        if (data.current_model) {
+          setCurrentModel(data.current_model)
+          console.log('✅ Model switched to:', data.current_model.model_name)
+        } else {
+          // Fallback to fetch if not included in response
+          await fetchCurrentModel()
+        }
       } else {
-        console.error('Failed to switch model')
+        const errorText = await response.text()
+        console.error('❌ Failed to switch model:', response.status, errorText)
+        
+        // Show user-friendly error message
+        alert(`Failed to switch to model: ${response.status} - ${errorText}`)
+        
+        // Reopen selector on error for better UX
+        setShowModelSelector(true)
       }
     } catch (e) {
-      console.error('Failed to select model:', e)
+      console.error('❌ Error selecting model:', e)
+      
+      // Show user-friendly error message
+      alert(`Error selecting model: ${e instanceof Error ? e.message : 'Unknown error'}`)
+      
+      // Reopen selector on error for better UX
+      setShowModelSelector(true)
+    } finally {
+      setIsModelSwitching(false)
     }
   }
 
   async function enableAutoModel() {
     try {
+      // Close dropdown immediately when user makes a choice
+      setShowModelSelector(false)
+      setIsModelSwitching(true)
+      
       const response = await fetch('/api/models/auto', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       })
+      
       if (response.ok) {
-        setShowModelSelector(false)
-        await fetchCurrentModel() // Refresh current model info
-        console.log('✅ Auto model enabled')
+        const data = await response.json()
+        // Update current model from response instead of making another request
+        if (data.current_model) {
+          setCurrentModel(data.current_model)
+        } else {
+          // Fallback to fetch if not included in response
+          await fetchCurrentModel()
+        }
+        console.log('✅ Switched to auto mode')
       } else {
         console.error('Failed to enable auto mode')
+        // Reopen selector on error for better UX
+        setShowModelSelector(true)
       }
     } catch (e) {
       console.error('Failed to enable auto model:', e)
+      // Reopen selector on error for better UX
+      setShowModelSelector(true)
+    } finally {
+      setIsModelSwitching(false)
     }
   }
 
@@ -293,16 +344,21 @@ export default function App(){
     fetchCurrentModel()
   }, [])
 
-
-
-  // Cleanup mouse leave timeout on unmount
+  // Click outside to close model selector
   useEffect(() => {
-    return () => {
-      if (mouseLeaveTimeoutRef.current) {
-        clearTimeout(mouseLeaveTimeoutRef.current)
+    function handleClickOutside(event: MouseEvent) {
+      if (modelSelectorRef.current && !modelSelectorRef.current.contains(event.target as Node)) {
+        setShowModelSelector(false)
       }
     }
-  }, [])
+
+    if (showModelSelector) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside)
+      }
+    }
+  }, [showModelSelector])
 
   // 📁 File management related functions
   async function fetchUploadedFiles() {
@@ -372,6 +428,27 @@ export default function App(){
         controller.abort()
       }, 30000)
       
+      // Simple immediate updates with minimal optimization
+      const addTextToBot = (text: string) => {
+        if (!botMessageAdded) {
+          // First chunk - add new bot message
+          botMessageAdded = true
+          console.log('➕ Adding first bot message')
+          updateCurrentMessages(msgs => [...msgs, { who: 'bot' as const, text }])
+        } else {
+          // Subsequent chunks - append to existing bot message
+          updateCurrentMessages(msgs => {
+            const lastIndex = msgs.length - 1
+            if (lastIndex >= 0 && msgs[lastIndex].who === 'bot') {
+              const newMessages = [...msgs]
+              newMessages[lastIndex] = {...msgs[lastIndex], text: msgs[lastIndex].text + text}
+              return newMessages
+            }
+            return msgs
+          })
+        }
+      }
+      
       try {
         let resp: Response
         if (selectedImage) {
@@ -409,7 +486,7 @@ export default function App(){
         }
         if(!resp.ok) throw new Error(`HTTP ${resp.status}`)
         
-        console.log('🌊 Starting stream processing for image upload...')
+        console.log('🌊 Starting stream processing...')
         const reader = resp.body!.getReader()
         const decoder = new TextDecoder('utf-8')
         let buffer = ''
@@ -423,16 +500,20 @@ export default function App(){
           
           if(done) {
             console.log(`Stream naturally ended after ${chunkCount} chunks`)
+            setLoading(false)
             break
           }
           
           if(streamCompleted) {
             console.log(`Stream completed via done event after ${chunkCount} chunks`)
+            // Ensure loading is cleared immediately when stream is marked complete
+            setLoading(false)
             break
           }
           
           if(chunkCount > MAX_CHUNKS) {
             console.warn(`Stream exceeded maximum chunks (${MAX_CHUNKS}), forcing completion`)
+            setLoading(false)
             break
           }
           
@@ -455,19 +536,8 @@ export default function App(){
                   if(cleanData) {
                     console.log('🔧 Processing individual malformed chunk:', JSON.stringify(cleanData))
                     
-                    updateCurrentMessages(msgs => {
-                      if (!botMessageAdded) {
-                        botMessageAdded = true
-                        return [...msgs, { who: 'bot' as const, text: cleanData }]
-                      } else {
-                        const lastIndex = msgs.length - 1
-                        return msgs.map((mm, idx) => 
-                          idx === lastIndex && mm.who === 'bot' 
-                            ? {...mm, text: mm.text + cleanData} 
-                            : mm
-                        )
-                      }
-                    })
+                    // Add text immediately without batching
+                    addTextToBot(cleanData)
                   }
                   processedLines.push(i)
                 }
@@ -509,41 +579,19 @@ export default function App(){
                 continue
               }
               if(event === 'done') {
-                // Stream completed, set flag to exit main loop
+                // Stream completed
                 console.log('Stream completed - received done event')
+                setLoading(false)
                 streamCompleted = true
                 break
               }
               if(data){
-                // Add the data chunk - add bot message if this is the first chunk
+                // Add the data chunk with optimized batching
                 console.log('📝 Processing streaming chunk:', JSON.stringify(data))
                 console.log('🤖 Bot message added status:', botMessageAdded)
                 
-                // Force a state update to ensure message appears in UI
-                updateCurrentMessages(msgs => {
-                  console.log('📝 Current messages before update:', msgs.length)
-                  let newMessages;
-                  
-                  if (!botMessageAdded) {
-                    // First chunk - add new bot message
-                    botMessageAdded = true
-                    console.log('➕ Adding first bot message with data:', JSON.stringify(data))
-                    newMessages = [...msgs, { who: 'bot' as const, text: data }]
-                  } else {
-                    // Subsequent chunks - append to last bot message
-                    const lastIndex = msgs.length - 1
-                    console.log('➕ Appending to existing bot message at index:', lastIndex)
-                    newMessages = msgs.map((mm, idx) => 
-                      idx === lastIndex && mm.who === 'bot' 
-                        ? {...mm, text: mm.text + data} 
-                        : mm
-                    )
-                  }
-                  
-                  console.log('🔄 Updated messages count:', newMessages.length)
-                  console.log('🔄 Last message preview:', newMessages[newMessages.length - 1]?.text?.substring(0, 50) + '...')
-                  return newMessages
-                })
+                // Add text with batching
+                addTextToBot(data)
               }
             }
         }
@@ -605,8 +653,17 @@ export default function App(){
     const files = event.target.files
     if (!files || files.length === 0) return
 
+    const fileNames = Array.from(files).map(f => f.name)
+    const uploadMessageId = Date.now().toString()
+    
+    // Add upload message to chat
+    updateCurrentMessages(msgs => [...msgs, {
+      who: 'bot',
+      text: `📤 **Uploading ${files.length} file(s)...**\n\n${fileNames.map(name => `📄 ${name}`).join('\n')}`,
+      id: uploadMessageId
+    }])
+
     setUploading(true)
-    setUploadStatus('Uploading...')
 
     const formData = new FormData()
     Array.from(files).forEach(file => {
@@ -614,29 +671,36 @@ export default function App(){
     })
 
     try {
-      const resp = await fetch('/api/upload', {
+      const response = await fetch('/api/upload', {
         method: 'POST',
         body: formData
       })
       
-      if (!resp.ok) {
-        const error = await resp.text()
-        throw new Error(error || `HTTP ${resp.status}`)
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${await response.text()}`)
       }
-
-      const result = await resp.json()
-      setUploadStatus(`✅ Uploaded ${result.files_count} file(s)`)
       
-      // Add system message to current session
-      updateCurrentMessages(msgs => [...msgs, {
-        who: 'bot',
-        text: `📄 **Files uploaded successfully!**\n\n${result.filenames.map((f: string) => `- ${f}`).join('\n')}\n\nThese documents are now available for the RAG assistant to reference.`
-      }])
-
-      setTimeout(() => setUploadStatus(''), 3000)
+      const result = await response.json()
+      
+      // Update chat with success message
+      updateCurrentMessages(msgs => msgs.map(msg => 
+        msg.id === uploadMessageId 
+          ? {
+              ...msg,
+              text: `✅ **Files uploaded successfully!**\n\n${result.filenames.map((f: string) => `📄 ${f}`).join('\n')}\n\nThese documents are now available for the RAG assistant to reference.`
+            }
+          : msg
+      ))
     } catch (e: any) {
-      setUploadStatus(`❌ Upload failed: ${e.message}`)
-      setTimeout(() => setUploadStatus(''), 5000)
+      // Update chat with error message
+      updateCurrentMessages(msgs => msgs.map(msg => 
+        msg.id === uploadMessageId 
+          ? {
+              ...msg,
+              text: `❌ **Upload failed: ${e.message}**\n\n${fileNames.map(name => `📄 ${name}`).join('\n')}`
+            }
+          : msg
+      ))
     } finally {
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
@@ -648,19 +712,67 @@ export default function App(){
   }
 
   // Image upload for chat functionality
-  function handleImageSelect(event: React.ChangeEvent<HTMLInputElement>) {
+  async function handleImageSelect(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
-    if (file && file.type.startsWith('image/')) {
-      setSelectedImage(file)
+    if (!file) return
+
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file')
+      return
+    }
+
+    const uploadMessageId = Date.now().toString()
+    
+    // Add upload message to chat
+    updateCurrentMessages(msgs => [...msgs, {
+      who: 'bot',
+      text: `🖼️ **Uploading image...**\n\n📸 ${file.name}`,
+      id: uploadMessageId
+    }])
+
+    const formData = new FormData()
+    formData.append('files', file)
+
+    try {
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+      })
       
-      // Create preview
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${await response.text()}`)
+      }
+      
+      const result = await response.json()
+      
+      // Create local preview for chat display
       const reader = new FileReader()
       reader.onload = (e) => {
-        setImagePreview(e.target?.result as string)
+        const imageDataUrl = e.target?.result as string
+        
+        // Update chat with success message and image preview
+        updateCurrentMessages(msgs => msgs.map(msg => 
+          msg.id === uploadMessageId 
+            ? {
+                ...msg,
+                text: `✅ **Image uploaded successfully!**\n\n📸 ${result.filenames[0]}\n\n![Uploaded Image](${imageDataUrl})\n\nThis image is now available for the RAG assistant to analyze.`
+              }
+            : msg
+        ))
       }
       reader.readAsDataURL(file)
-    } else if (file) {
-      alert('Please select an image file')
+    } catch (e: any) {
+      // Update chat with error message
+      updateCurrentMessages(msgs => msgs.map(msg => 
+        msg.id === uploadMessageId 
+          ? {
+              ...msg,
+              text: `❌ **Image upload failed: ${e.message}**\n\n📸 ${file.name}`
+            }
+          : msg
+      ))
+    } finally {
+      if (imageInputRef.current) imageInputRef.current.value = ''
     }
   }
 
@@ -920,20 +1032,21 @@ export default function App(){
               accept=".txt,.pdf,.doc,.docx,.md,.jpg,.jpeg,.png,.gif,.bmp,.webp"
               style={{ display: 'none' }}
             />
-            {uploadStatus && <span className="upload-status">{uploadStatus}</span>}
+
             
             {/* Model Selector */}
-            <div 
-              className="model-selector"
-              onMouseEnter={handleModelSelectorMouseEnter}
-              onMouseLeave={handleModelSelectorMouseLeave}
-            >
+            <div className="model-selector" ref={modelSelectorRef}>
               <button 
                 className="btn btn-secondary model-toggle" 
-                onClick={() => setShowModelSelector(!showModelSelector)}
+                onClick={handleDropdownToggle}
                 title="Select AI Model"
+                disabled={isModelSwitching}
               >
-                🤖 {currentModel ? currentModel.model_name : 'Select Model'}
+                {isModelSwitching ? (
+                  <span>🔄 Switching...</span>
+                ) : (
+                  <span>🤖 {currentModel ? currentModel.model_name : 'Select Model'}</span>
+                )}
               </button>
               {showModelSelector && (
                 <div className="model-dropdown">
@@ -946,16 +1059,20 @@ export default function App(){
                       className="model-btn auto-btn"
                       onClick={enableAutoModel}
                       title="Enable automatic model selection with fallback"
+                      disabled={isModelSwitching}
                     >
                       🔄 Auto Mode
                     </button>
                   </div>
-                  {availableModels.map((model) => (
+                  {availableModels
+                    .filter(model => model.available || model.status === 'ready')
+                    .map((model) => (
                     <div key={model.id} className="model-option">
                       <button 
                         className="model-btn"
                         onClick={() => selectModel(model.id)}
                         title={`${model.description} - ${model.status || 'Available'}`}
+                        disabled={isModelSwitching || (!model.available && model.status !== 'ready')}
                       >
                         <span className="model-name">{model.display_name}</span>
                         <span className="model-status">
@@ -968,6 +1085,13 @@ export default function App(){
                       </button>
                     </div>
                   ))}
+                  {availableModels.filter(model => model.available || model.status === 'ready').length === 0 && (
+                    <div className="model-option">
+                      <div style={{padding: '8px', color: '#666', fontSize: '12px'}}>
+                        No available models. Check your API configuration.
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1016,7 +1140,7 @@ export default function App(){
                     )}
                   </div>
                   <div className="message-info">
-                    <span className="sender-name">{m.who==='user' ? 'You' : 'AI Assistant'}</span>
+                    <span className="sender-name">{m.who==='user' ? 'You' : 'AUV'}</span>
                     <span className="message-time">{new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
                   </div>
                 </div>
@@ -1026,6 +1150,9 @@ export default function App(){
                       {m.text || ''}
                     </ReactMarkdown>
                   </div>
+                  
+
+                  
                   <div className="message-status">
                     {m.who === 'user' && (
                       <svg viewBox="0 0 16 16" className="check-icon">
@@ -1049,7 +1176,7 @@ export default function App(){
                     </div>
                   </div>
                   <div className="message-info">
-                    <span className="sender-name">AI Assistant</span>
+                    <span className="sender-name">AUV</span>
                     <span className="message-time">Typing...</span>
                   </div>
                 </div>
