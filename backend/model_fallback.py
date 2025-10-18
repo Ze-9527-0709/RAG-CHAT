@@ -70,7 +70,7 @@ class ModelFallbackManager:
     
     def __init__(self, openai_client: OpenAI | None):
         self.client = openai_client
-        self.current_tier = ModelTier.LOCAL_LLAMA if openai_client is None else ModelTier.GPT4
+        self.current_tier = ModelTier.LOCAL if openai_client is None else ModelTier.GPT4
         self.user_preferred_model = None  # User's manually selected model
         self.last_quota_check = 0
         self.quota_cache = {}
@@ -115,8 +115,8 @@ class ModelFallbackManager:
         if self.client is None:
             logger.info("No OpenAI client available, using local model")
             if await self._check_local_model():
-                self.current_tier = ModelTier.LOCAL_LLAMA
-                return ModelTier.LOCAL_LLAMA, "No API key - using local model"
+                self.current_tier = ModelTier.LOCAL
+                return ModelTier.LOCAL, "No API key - using local model"
         
         # If too many OpenAI models have failed recently, prefer local model
         openai_failures = sum(1 for tier in [ModelTier.GPT4, ModelTier.GPT4_MINI, ModelTier.GPT35] 
@@ -124,8 +124,8 @@ class ModelFallbackManager:
         if openai_failures >= 2:  # If 2 or more OpenAI models are failing
             logger.info(f"Multiple OpenAI models failing ({openai_failures}/3), preferring local model")
             if await self._check_local_model():
-                self.current_tier = ModelTier.LOCAL_LLAMA
-                return ModelTier.LOCAL_LLAMA, "OpenAI models unreliable - using local model"
+                self.current_tier = ModelTier.LOCAL
+                return ModelTier.LOCAL, "OpenAI models unreliable - using local model"
         
         # Try models in order of preference
         for tier in ModelTier:
@@ -411,22 +411,22 @@ class ModelFallbackManager:
         import json
         from typing import Any
         
-        fallback_message = """🤖 抱歉，所有AI模型暂时不可用。
+        fallback_message = """🤖 Sorry, all AI models are temporarily unavailable.
 
-📋 **当前状态:**
-- OpenAI模型: 配额不足或速率限制
-- 本地模型: 未安装或未运行
+📋 **Current Status:**
+- OpenAI Models: Quota insufficient or rate limited
+- Local Models: Not installed or not running
 
-💡 **解决方案:**
-1. **OpenAI配额**: 访问 platform.openai.com 检查账单
-2. **等待重置**: 速率限制通常会在一小时内重置
-3. **本地模型**: 可以安装Ollama作为备用
+💡 **Solutions:**
+1. **OpenAI Quota**: Visit platform.openai.com to check billing
+2. **Wait for Reset**: Rate limits usually reset within an hour
+3. **Local Models**: You can install Ollama as backup
 
-📊 **AI Growth Stats功能**: 正常可用
-🔍 **文件处理功能**: 正常可用
-💬 **聊天历史**: 已保存
+📊 **AI Growth Stats**: Available
+🔍 **File Processing**: Available  
+💬 **Chat History**: Saved
 
-请稍后再试或联系管理员协助解决。"""
+Please try again later or contact administrator for assistance."""
 
         # Create a mock response object that mimics requests.Response
         class MockResponse:

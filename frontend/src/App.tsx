@@ -247,6 +247,7 @@ export default function App(){
       const data = await response.json();
       const models: ModelInfo[] = data.models || data; // Handle both {models: []} and [] formats
       console.log('🎯 Processed models:', models.length, 'models loaded');
+      console.log('🔍 Available models data:', models);
       setAvailableModels(models);
       
       // Also fetch current model info
@@ -426,11 +427,21 @@ export default function App(){
           formData.append('stream', 'true')
           formData.append('image', selectedImage)
           
+          console.log('🖼️ Sending image upload request:', {
+            sessionId: currentId,
+            message: text,
+            imageName: selectedImage.name,
+            imageSize: selectedImage.size
+          })
+          
           resp = await fetch('/api/chat_stream_with_image', {
             method: 'POST',
             body: formData,
             signal: controller.signal
           })
+          
+          console.log('📥 Image upload response status:', resp.status, resp.ok)
+          console.log('📋 Response headers:', Object.fromEntries(resp.headers.entries()))
         } else {
           // Regular JSON request
           resp = await fetch('/api/chat_stream', {
@@ -441,6 +452,8 @@ export default function App(){
           })
         }
         if(!resp.ok) throw new Error(`HTTP ${resp.status}`)
+        
+        console.log('🌊 Starting stream processing for image upload...')
         const reader = resp.body!.getReader()
         const decoder = new TextDecoder('utf-8')
         let buffer = ''
@@ -467,7 +480,51 @@ export default function App(){
             break
           }
           
-          buffer += decoder.decode(value, {stream:true})
+            buffer += decoder.decode(value, {stream:true})
+          
+            // Handle malformed SSE chunks that don't end with \n\n
+            // Check if buffer contains data lines without proper event structure
+            if(buffer.includes('data:') && !buffer.includes('\n\n')){
+              // Split by individual lines to handle malformed chunks
+              const lines = buffer.split('\n')
+              const processedLines: number[] = []
+              let remainder = ''
+              
+              for(let i = 0; i < lines.length; i++){
+                const line = lines[i].trim()
+                if(line.startsWith('data:') && !line.includes('event:')){
+                  // This is a malformed individual data chunk
+                  const rawData = line.slice(5) // Remove "data:"
+                  const cleanData = rawData.startsWith(' ') ? rawData.slice(1) : rawData
+                  if(cleanData) {
+                    console.log('🔧 Processing individual malformed chunk:', JSON.stringify(cleanData))
+                    
+                    updateCurrentMessages(msgs => {
+                      if (!botMessageAdded) {
+                        botMessageAdded = true
+                        return [...msgs, { who: 'bot' as const, text: cleanData }]
+                      } else {
+                        const lastIndex = msgs.length - 1
+                        return msgs.map((mm, idx) => 
+                          idx === lastIndex && mm.who === 'bot' 
+                            ? {...mm, text: mm.text + cleanData} 
+                            : mm
+                        )
+                      }
+                    })
+                  }
+                  processedLines.push(i)
+                }
+              }
+              
+              // Remove processed lines from buffer
+              if(processedLines.length > 0){
+                const remainingLines = lines.filter((_, i) => !processedLines.includes(i))
+                buffer = remainingLines.join('\n')
+              }
+            }
+          
+            // Normal SSE processing for properly formatted events
             const parts = buffer.split('\n\n')
             buffer = parts.pop() || ''
             for(const raw of parts){
@@ -480,9 +537,13 @@ export default function App(){
                 else if(ln.startsWith('data:')) {
                   // Extract data content, remove the first space after "data:", but keep spaces within tokens
                   const rawData = ln.slice(5) // Remove "data:"
-                  data = rawData.startsWith(' ') ? rawData.slice(1) : rawData
+                  data += rawData.startsWith(' ') ? rawData.slice(1) : rawData
                 }
               }
+              
+              // Debug: Log every event and data we receive
+              console.log('🔍 Raw event part:', JSON.stringify(raw))
+              console.log('🎯 Parsed - Event:', event, 'Data:', JSON.stringify(data))
               if(event === 'citations'){
                 // Skip citations - we don't want to display them
                 continue
@@ -499,21 +560,33 @@ export default function App(){
               }
               if(data){
                 // Add the data chunk - add bot message if this is the first chunk
-                console.log('Streaming chunk:', JSON.stringify(data))
+                console.log('📝 Processing streaming chunk:', JSON.stringify(data))
+                console.log('🤖 Bot message added status:', botMessageAdded)
+                
+                // Force a state update to ensure message appears in UI
                 updateCurrentMessages(msgs => {
+                  console.log('📝 Current messages before update:', msgs.length)
+                  let newMessages;
+                  
                   if (!botMessageAdded) {
                     // First chunk - add new bot message
                     botMessageAdded = true
-                    return [...msgs, { who: 'bot', text: data }]
+                    console.log('➕ Adding first bot message with data:', JSON.stringify(data))
+                    newMessages = [...msgs, { who: 'bot' as const, text: data }]
                   } else {
                     // Subsequent chunks - append to last bot message
                     const lastIndex = msgs.length - 1
-                    return msgs.map((mm, idx) => 
+                    console.log('➕ Appending to existing bot message at index:', lastIndex)
+                    newMessages = msgs.map((mm, idx) => 
                       idx === lastIndex && mm.who === 'bot' 
                         ? {...mm, text: mm.text + data} 
                         : mm
                     )
                   }
+                  
+                  console.log('🔄 Updated messages count:', newMessages.length)
+                  console.log('🔄 Last message preview:', newMessages[newMessages.length - 1]?.text?.substring(0, 50) + '...')
+                  return newMessages
                 })
               }
             }
@@ -948,6 +1021,7 @@ export default function App(){
                 <div className="model-dropdown">
                   <div style={{padding: '4px 8px', fontSize: '10px', color: '#666', borderBottom: '1px solid #eee'}}>
                     Models loaded: {availableModels.length}
+                    {availableModels.length === 0 && <div style={{color: 'red'}}>⚠️ No models found!</div>}
                   </div>
                   <div className="model-option auto-option">
                     <button 

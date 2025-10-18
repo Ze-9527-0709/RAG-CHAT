@@ -3,6 +3,7 @@ uvicorn[standard]
 python-dotenv
 openai
 tiktoken
+requests
 
 # RAG
 langchain>=0.2

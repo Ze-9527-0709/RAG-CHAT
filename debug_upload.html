@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Image Upload Debug Test</title>
+</head>
+<body>
+    <h1>Frontend Image Upload Debug Test</h1>
+    <input type="file" id="imageInput" accept="image/*">
+    <button onclick="testUpload()">Test Upload</button>
+    <div id="output"></div>
+    
+    <script>
+        async function testUpload() {
+            const fileInput = document.getElementById('imageInput');
+            const output = document.getElementById('output');
+            
+            if (!fileInput.files.length) {
+                output.innerHTML = '<p style="color: red;">Please select an image first</p>';
+                return;
+            }
+            
+            const file = fileInput.files[0];
+            output.innerHTML = '<p>Testing upload...</p>';
+            
+            console.log('🔍 Starting image upload test with file:', file.name);
+            
+            try {
+                // Create FormData exactly like the frontend does
+                const formData = new FormData();
+                formData.append('session_id', 'browser_test_session');
+                formData.append('message', 'What do you see in this image?');
+                formData.append('max_history', '8');
+                formData.append('stream', 'true');
+                formData.append('image', file);
+                
+                console.log('📤 Making request to /api/chat_stream_with_image');
+                
+                const response = await fetch('/api/chat_stream_with_image', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                console.log('📥 Response status:', response.status);
+                console.log('📋 Response headers:', [...response.headers.entries()]);
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('❌ HTTP Error:', response.status, errorText);
+                    output.innerHTML = `<p style="color: red;">HTTP Error: ${response.status}</p>`;
+                    return;
+                }
+                
+                console.log('🌊 Starting to read streaming response...');
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder('utf-8');
+                let buffer = '';
+                let chunkCount = 0;
+                let totalData = '';
+                
+                output.innerHTML = '<p>Reading stream...</p><div id="streamOutput"></div>';
+                const streamOutput = document.getElementById('streamOutput');
+                
+                while (true) {
+                    const { done, value } = await reader.read();
+                    chunkCount++;
+                    
+                    if (done) {
+                        console.log(`✅ Stream completed after ${chunkCount} chunks`);
+                        break;
+                    }
+                    
+                    const chunk = decoder.decode(value, { stream: true });
+                    buffer += chunk;
+                    
+                    // Process complete events
+                    const parts = buffer.split('\\n\\n');
+                    buffer = parts.pop() || '';
+                    
+                    for (const raw of parts) {
+                        if (!raw.trim()) continue;
+                        
+                        const lines = raw.split('\\n');
+                        let event = null;
+                        let data = '';
+                        
+                        for (const line of lines) {
+                            if (line.startsWith('event:')) {
+                                event = line.slice(6).trim();
+                            } else if (line.startsWith('data:')) {
+                                data = line.slice(5);
+                                if (data.startsWith(' ')) data = data.slice(1);
+                            }
+                        }
+                        
+                        console.log(`📦 Event: ${event || 'data'}, Data: "${data}"`);
+                        
+                        if (event === 'citations' || event === 'model_info') {
+                            console.log('⏭️ Skipping citation/model_info event');
+                            continue;
+                        }
+                        
+                        if (event === 'done') {
+                            console.log('🏁 Received done event');
+                            break;
+                        }
+                        
+                        if (data) {
+                            totalData += data;
+                            streamOutput.innerHTML = `<pre>${totalData}</pre>`;
+                        }
+                    }
+                    
+                    if (chunkCount > 100) {
+                        console.log('⚠️ Stopping after 100 chunks for safety');
+                        break;
+                    }
+                }
+                
+                output.innerHTML = `<p style="color: green;">✅ Stream completed with ${chunkCount} chunks</p><div><h3>Final Output:</h3><pre>${totalData}</pre></div>`;
+                
+            } catch (error) {
+                console.error('❌ Test failed:', error);
+                output.innerHTML = `<p style="color: red;">❌ Error: ${error.message}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>

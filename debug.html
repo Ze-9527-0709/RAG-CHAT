@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Models API</title>
+</head>
+<body>
+    <h1>Debug Models API</h1>
+    <button onclick="fetchModels()">Fetch Models</button>
+    <div id="results"></div>
+    
+    <script>
+        async function fetchModels() {
+            try {
+                console.log('Fetching models...');
+                const response = await fetch('http://localhost:8000/api/models');
+                const data = await response.json();
+                console.log('Models data:', data);
+                
+                document.getElementById('results').innerHTML = `
+                    <h2>Models (${data.models.length}):</h2>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                `;
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('results').innerHTML = `Error: ${error}`;
+            }
+        }
+        
+        // Auto-fetch on page load
+        window.onload = fetchModels;
+    </script>
+</body>
+</html>

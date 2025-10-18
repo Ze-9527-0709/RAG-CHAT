@@ -272,6 +272,102 @@ async def chat_stream_with_image(
         }
     )
 
+# Model selection API
+@app.get("/api/models")
+async def get_models():
+    """Get available models for selection"""
+    return {
+        "models": [
+            {
+                "id": "gpt-4o",
+                "name": "gpt-4o",
+                "display_name": "GPT-4o (Best Quality)",
+                "description": "Highest quality responses, best for complex tasks",
+                "available": True,
+                "auto_available": False,
+                "is_local": False,
+                "max_tokens": 128000,
+                "cost_per_1k": 0.0025,
+                "failure_count": 0,
+                "status": "ready"
+            },
+            {
+                "id": "gpt-4o-mini",
+                "name": "gpt-4o-mini",
+                "display_name": "GPT-4o Mini (Balanced)",
+                "description": "Great balance of quality and speed, cost-effective",
+                "available": True,
+                "auto_available": True,
+                "is_local": False,
+                "max_tokens": 128000,
+                "cost_per_1k": 0.00015,
+                "failure_count": 0,
+                "status": "ready"
+            },
+            {
+                "id": "gpt-3.5-turbo",
+                "name": "gpt-3.5-turbo",
+                "display_name": "GPT-3.5 Turbo (Fast)",
+                "description": "Fast responses, good for simple questions",
+                "available": True,
+                "auto_available": True,
+                "is_local": False,
+                "max_tokens": 16385,
+                "cost_per_1k": 0.0005,
+                "failure_count": 0,
+                "status": "ready"
+            },
+            {
+                "id": "local-llama",
+                "name": "llama3.1:8b",
+                "display_name": "Llama 3.1 8B (Local)",
+                "description": "Private local model, no API costs, works offline",
+                "available": True,
+                "auto_available": True,
+                "is_local": True,
+                "max_tokens": 8192,
+                "cost_per_1k": 0.0,
+                "failure_count": 0,
+                "status": "ready"
+            }
+        ]
+    }
+
+@app.get("/api/model_status")
+async def get_model_status():
+    """Get current model status"""
+    return {
+        "current_model": {
+            "model_name": "gpt-4o-mini",
+            "tier": "gpt-4o-mini",
+            "is_user_selected": False,
+            "selection_reason": "Auto-selected based on availability and cost"
+        }
+    }
+
+@app.post("/api/models/auto")
+async def enable_auto_model():
+    """Enable auto model selection"""
+    return {
+        "success": True,
+        "message": "Auto model selection enabled",
+        "current_model": "gpt-4o-mini"
+    }
+
+@app.post("/api/models/{model_id}")
+async def select_model(model_id: str):
+    """Select a specific model"""
+    return {
+        "success": True,
+        "message": f"Model {model_id} selected",
+        "current_model": model_id
+    }
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {"status": "ok", "message": "Mock backend is running"}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
