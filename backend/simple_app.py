@@ -10,12 +10,30 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from openai import OpenAI
 
+# ---- Pydantic 模型 ----
+class ModelSelection(BaseModel):
+    model_id: str
+
 # ---- 智能模型降级系统 ----
 from model_fallback import ModelFallbackManager, ModelTier, MODEL_CONFIGS, ModelConfig, estimate_tokens
+
+# ---- AI Agent 身份管理系统 ----
+try:
+    from agent_identity import AgentIdentityManager, get_agent_identity_prompt
+    IDENTITY_SYSTEM_AVAILABLE = True
+except ImportError:
+    print("⚠️ Agent identity system not available, using basic identity")
+    IDENTITY_SYSTEM_AVAILABLE = False
 
 # ---- 环境变量 ----
 load_dotenv()
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+# ---- AI Agent 身份配置 ----
+AI_AGENT_NAME = os.getenv("AI_AGENT_NAME", "AUV")
+AI_AGENT_PERSONALITY = os.getenv("AI_AGENT_PERSONALITY", 
+    f"I am {AI_AGENT_NAME}, an intelligent AI assistant created by Rui for the RAG Chat App. I have a helpful, professional, and knowledgeable personality.")
+
 # Initialize OpenAI client with graceful handling of missing API key
 openai_api_key = os.getenv("OPENAI_API_KEY")
 if openai_api_key:
@@ -27,6 +45,11 @@ else:
 
 # Initialize model fallback manager
 model_manager = ModelFallbackManager(client)
+
+# Initialize agent identity system
+if IDENTITY_SYSTEM_AVAILABLE:
+    agent_identity = AgentIdentityManager("agent_identity.db")
+    print("✅ Agent identity system initialized")
 
 # ---- FastAPI 应用程序初始化 ----
 app = FastAPI(title="RAG Chat API", version="1.0.0")
@@ -79,7 +102,7 @@ def add_to_session(session_id: str, role: str, content: str):
         "timestamp": datetime.now().isoformat()
     })
 
-def get_session_messages(session_id: str):
+def get_session_messages(session_id: str, limit: int = 10):
     """Get session history messages"""
     return sessions.get(session_id, [])[-limit:]
 
@@ -169,10 +192,11 @@ async def get_model_status():
     except Exception as e:
         return {"error": str(e)}
 
-@app.post("/api/models/select/{model_id}")
+@app.post("/api/models/select")
 async def select_model(request: ModelSelection):
     """Manual model selection"""
     try:
+        model_id = request.model_id
         # 将model_id转换为ModelTier
         tier_map = {
             "gpt-4o": ModelTier.GPT4,
@@ -225,19 +249,38 @@ async def chat_endpoint(message: ChatMessage):
         # 获取会话历史
         history = get_session_messages(session_id)
         
-        # 使用模型管理器获取响应
-        response = await model_manager.get_chat_response(
-            user_message,
-            history=history,
-            estimated_tokens=estimate_tokens(user_message)
-        )
+        # 构建带身份的系统提示词
+        if IDENTITY_SYSTEM_AVAILABLE:
+            base_identity = get_agent_identity_prompt()
+        else:
+            base_identity = f"{AI_AGENT_PERSONALITY} My name is {AI_AGENT_NAME} and I always remember who I am."
+        
+        # 构建消息数组，包含系统提示词
+        system_prompt = f"{base_identity} Be helpful, conversational, and informative."
+        messages = [{"role": "system", "content": system_prompt}]
+        
+        # 添加历史消息
+        for msg in history[-10:]:  # 最近10条消息
+            messages.append({"role": msg["role"], "content": msg["content"]})
+        
+        # 添加当前用户消息
+        messages.append({"role": "user", "content": user_message})
+        
+        # 估算tokens并获取合适的模型
+        estimated_tokens = estimate_tokens(str(messages))
+        selected_tier, reason = await model_manager.get_optimal_model(estimated_tokens)
+        
+        # 执行聊天
+        completion = await model_manager.execute_chat(messages, selected_tier, stream=False)
+        response_content = completion.choices[0].message.content if completion.choices else "No response generated"
         
         # 添加助手响应到会话
-        add_to_session(session_id, "assistant", response["content"])
+        add_to_session(session_id, "assistant", response_content)
         
         return {
-            "response": response["content"],
-            "model_used": response.get("model_used", "unknown"),
+            "answer": response_content,
+            "model_used": selected_tier.value,
+            "selection_reason": reason,
             "session_id": session_id,
             "timestamp": datetime.now().isoformat()
         }
