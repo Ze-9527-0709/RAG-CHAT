@@ -29,10 +29,13 @@ type ModelInfo = {
 }
 
 type CurrentModel = {
-  tier: string
-  model_name: string
-  is_user_selected: boolean
-  user_preferred_model: string | null
+  id: string
+  name: string
+  display_name: string
+  description: string
+  is_local: boolean
+  max_tokens: number
+  cost_per_1k: number
 }
 
 // LocalStorage keys
@@ -220,6 +223,15 @@ export default function App(){
     setShowModelSelector(prev => !prev)
   }
 
+  // Helper function to check if a model is currently selected
+  function isModelSelected(modelId: string) {
+    return currentModel && (
+      currentModel.name === modelId || 
+      currentModel.id === modelId ||
+      modelId === currentModel.name
+    )
+  }
+
   // 🤖 Model selection related functions
     // Fetch available models from backend
   const fetchAvailableModels = async () => {
@@ -275,7 +287,36 @@ export default function App(){
         // Update current model from response instead of making another request
         if (data.current_model) {
           setCurrentModel(data.current_model)
-          console.log('✅ Model switched to:', data.current_model.model_name)
+          console.log('✅ Model switched to:', data.current_model.name)
+          
+          // Show a brief success message to user
+          const modelDisplayName = data.current_model.name === 'gpt-4o' ? 'GPT-4o' :
+                                  data.current_model.name === 'gpt-4o-mini' ? 'GPT-4o Mini' :
+                                  data.current_model.name === 'gpt-3.5-turbo' ? 'GPT-3.5 Turbo' :
+                                  (data.current_model.name && data.current_model.name.includes('llama')) ? 'Local Llama' :
+                                  data.current_model.display_name || data.current_model.name || 'Unknown Model'
+          
+          // Brief success notification (you can replace this with a toast library)
+          const notification = document.createElement('div')
+          notification.style.cssText = `
+            position: fixed; top: 20px; right: 20px; z-index: 9999;
+            background: linear-gradient(135deg, #059669, #10b981);
+            color: white; padding: 12px 20px; border-radius: 8px;
+            font-weight: 600; box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            transform: translateX(100%); transition: transform 0.3s ease;
+          `
+          notification.textContent = `✅ Switched to ${modelDisplayName}`
+          document.body.appendChild(notification)
+          
+          // Animate in
+          setTimeout(() => notification.style.transform = 'translateX(0)', 100)
+          
+          // Remove after 3 seconds
+          setTimeout(() => {
+            notification.style.transform = 'translateX(100%)'
+            setTimeout(() => document.body.removeChild(notification), 300)
+          }, 3000)
+          
         } else {
           // Fallback to fetch if not included in response
           await fetchCurrentModel()
@@ -296,41 +337,6 @@ export default function App(){
       // Show user-friendly error message
       alert(`Error selecting model: ${e instanceof Error ? e.message : 'Unknown error'}`)
       
-      // Reopen selector on error for better UX
-      setShowModelSelector(true)
-    } finally {
-      setIsModelSwitching(false)
-    }
-  }
-
-  async function enableAutoModel() {
-    try {
-      // Close dropdown immediately when user makes a choice
-      setShowModelSelector(false)
-      setIsModelSwitching(true)
-      
-      const response = await fetch('/api/models/auto', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      })
-      
-      if (response.ok) {
-        const data = await response.json()
-        // Update current model from response instead of making another request
-        if (data.current_model) {
-          setCurrentModel(data.current_model)
-        } else {
-          // Fallback to fetch if not included in response
-          await fetchCurrentModel()
-        }
-        console.log('✅ Switched to auto mode')
-      } else {
-        console.error('Failed to enable auto mode')
-        // Reopen selector on error for better UX
-        setShowModelSelector(true)
-      }
-    } catch (e) {
-      console.error('Failed to enable auto model:', e)
       // Reopen selector on error for better UX
       setShowModelSelector(true)
     } finally {
@@ -505,7 +511,8 @@ export default function App(){
           }
           
           if(streamCompleted) {
-            console.log(`Stream completed via done event after ${chunkCount} chunks`)
+            console.log(`🎯 Stream completed via done event after ${chunkCount} chunks`)
+            console.log('🎯 Setting loading to false in main loop due to streamCompleted')
             // Ensure loading is cleared immediately when stream is marked complete
             setLoading(false)
             break
@@ -580,9 +587,11 @@ export default function App(){
               }
               if(event === 'done') {
                 // Stream completed
-                console.log('Stream completed - received done event')
+                console.log('🎯 DONE EVENT RECEIVED - Setting loading to false')
+                console.log('🎯 Current loading state before setting:', loading)
                 setLoading(false)
                 streamCompleted = true
+                console.log('🎯 Done event processed, streamCompleted set to true')
                 break
               }
               if(data){
@@ -602,6 +611,7 @@ export default function App(){
       } finally {
         // Clear the stream timeout
         clearTimeout(streamTimeout)
+        console.log('🎯 Setting loading to false in finally block')
         setLoading(false)
         abortRef.current = null
         // Clear selected image after sending
@@ -1014,6 +1024,19 @@ export default function App(){
         <div className="chat-header">
           <div className="chat-title">RAG Chat Assistant</div>
           <div className="session-label">{currentSession.name}</div>
+          {/* Current Model Indicator */}
+          {currentModel && (
+            <div className="current-model-indicator">
+              <span className="model-indicator-label">Using:</span>
+              <span className="model-indicator-name">
+                {currentModel.name === 'gpt-4o' ? '🧠 GPT-4o' :
+                 currentModel.name === 'gpt-4o-mini' ? '⚡ GPT-4o Mini' :
+                 currentModel.name === 'gpt-3.5-turbo' ? '🚀 GPT-3.5 Turbo' :
+                 (currentModel.name && currentModel.name.includes('llama')) ? '🦙 Local Llama' :
+                 `🤖 ${currentModel.display_name || currentModel.name || 'Unknown'}`}
+              </span>
+            </div>
+          )}
           <div className="chat-controls">
             {/* File Upload Button */}
             <button 
@@ -1044,8 +1067,16 @@ export default function App(){
               >
                 {isModelSwitching ? (
                   <span>🔄 Switching...</span>
+                ) : currentModel ? (
+                  <span>
+                    {currentModel.name === 'gpt-4o' ? '� GPT-4o' :
+                     currentModel.name === 'gpt-4o-mini' ? '⚡ GPT-4o Mini' :
+                     currentModel.name === 'gpt-3.5-turbo' ? '🚀 GPT-3.5 Turbo' :
+                     (currentModel.name && currentModel.name.includes('llama')) ? '🦙 Local Llama' :
+                     `🤖 ${currentModel.display_name || currentModel.name || 'Unknown'}`}
+                  </span>
                 ) : (
-                  <span>🤖 {currentModel ? currentModel.model_name : 'Select Model'}</span>
+                  <span>🤖 Select Model</span>
                 )}
               </button>
               {showModelSelector && (
@@ -1054,27 +1085,20 @@ export default function App(){
                     Models loaded: {availableModels.length}
                     {availableModels.length === 0 && <div style={{color: 'red'}}>⚠️ No models found!</div>}
                   </div>
-                  <div className="model-option auto-option">
-                    <button 
-                      className="model-btn auto-btn"
-                      onClick={enableAutoModel}
-                      title="Enable automatic model selection with fallback"
-                      disabled={isModelSwitching}
-                    >
-                      🔄 Auto Mode
-                    </button>
-                  </div>
                   {availableModels
                     .filter(model => model.available || model.status === 'ready')
                     .map((model) => (
-                    <div key={model.id} className="model-option">
+                    <div key={model.id} className={`model-option ${isModelSelected(model.id) ? 'selected' : ''}`}>
                       <button 
-                        className="model-btn"
+                        className={`model-btn ${isModelSelected(model.id) ? 'selected' : ''}`}
                         onClick={() => selectModel(model.id)}
                         title={`${model.description} - ${model.status || 'Available'}`}
                         disabled={isModelSwitching || (!model.available && model.status !== 'ready')}
                       >
-                        <span className="model-name">{model.display_name}</span>
+                        <span className="model-name">
+                          {isModelSelected(model.id) && <span className="selected-indicator">✅ </span>}
+                          {model.display_name}
+                        </span>
                         <span className="model-status">
                           {model.is_local ? '🦙' : 
                            model.status === 'ready' ? '☁️' : 

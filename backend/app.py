@@ -9,9 +9,18 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from openai import OpenAI
+import asyncio
+import time
+import hashlib
 
-# ---- 智能模型降级系统 ----
-from model_fallback import ModelFallbackManager, ModelTier, MODEL_CONFIGS, ModelConfig, estimate_tokens
+# 🚀 Performance optimizations
+from performance_optimizations import (
+    response_cache, OptimizedRetriever, OptimizedMemorySystem, 
+    perf_monitor, timing_decorator, async_cache
+)
+
+# ---- 简化的模型管理系统 ----
+from simple_models import SimpleModelManager, ModelType, MODEL_CONFIGS as SIMPLE_MODEL_CONFIGS
 
 # ---- 环境变量 ----
 load_dotenv()
@@ -31,8 +40,8 @@ else:
     client = None
     print("⚠️ No OpenAI API key found - OpenAI models will be unavailable")
 
-# Initialize model fallback manager
-model_manager = ModelFallbackManager(client)
+# Initialize simple model manager
+model_manager = SimpleModelManager(client)
 
 # ---- RAG 组件（Pinecone + LangChain）----
 from langchain_openai import OpenAIEmbeddings
@@ -47,9 +56,10 @@ EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small")
 embeddings = None
 vectorstore = None
 retriever = None
+optimized_retriever = None
 
 def init_vectorstore():
-    global retriever
+    global retriever, optimized_retriever
     try:
         # Initialize Pinecone client
         from pinecone import Pinecone
@@ -68,7 +78,11 @@ def init_vectorstore():
             embedding=embeddings
         )
         retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
-        print("✅ Vectorstore initialized successfully")
+        
+        # 🚀 Initialize optimized retriever with caching
+        optimized_retriever = OptimizedRetriever(retriever, cache_size=500)
+        
+        print("✅ Vectorstore and optimized retriever initialized successfully")
         return True
     except Exception as e:
         print(f"⚠️ Failed to initialize vectorstore: {e}")
@@ -102,6 +116,9 @@ memory_system = ConversationMemory("conversations.db")
 personality_system = AdaptivePersonality(memory_system)
 agent_identity = AgentIdentityManager("agent_identity.db")
 
+# 🚀 Initialize optimized memory system
+optimized_memory = OptimizedMemorySystem("conversations.db")
+
 class ChatRequest(BaseModel):
     session_id: str
     message: str
@@ -118,11 +135,41 @@ def _sse_format(event: str | None, data: str):
         return f"event: {event}\ndata: {data}\n\n"
     return f"data: {data}\n\n"
 
+def _generate_cache_key(message: str, session_id: str, max_history: int = 8) -> str:
+    """Generate cache key for response caching"""
+    # Normalize message for better cache hits
+    normalized = message.lower().strip()
+    # Include recent conversation context for cache key
+    recent_history = SESSIONS.get(session_id, [])[-max_history:] if session_id in SESSIONS else []
+    context_hash = hashlib.md5(str(recent_history).encode()).hexdigest()[:8]
+    
+    key = f"{normalized}:{session_id}:{context_hash}"
+    return hashlib.md5(key.encode()).hexdigest()
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
-def retrieve_context(query: str, k: int = 4):
+@timing_decorator("context_retrieval")
+async def retrieve_context(query: str, k: int = 4):
+    """🚀 Optimized context retrieval with caching"""
+    try:
+        if not USE_RAG or optimized_retriever is None:
+            print(f"🔍 RAG disabled or retriever not available, using no context")
+            return "", []
+        
+        # Use optimized retriever with caching
+        context, cites = await optimized_retriever.retrieve_context_optimized(query, k)
+        print(f"🔍 Retrieved context for query: '{query[:50]}...' ({len(context)} chars)")
+        return context, cites
+        
+    except Exception as e:
+        print(f"⚠️ RAG retrieval failed (falling back to no context): {e}")
+        return "", []
+
+# Legacy sync version for backward compatibility
+def retrieve_context_sync(query: str, k: int = 4):
+    """Synchronous version of retrieve_context"""
     try:
         if not USE_RAG or retriever is None:
             print(f"🔍 RAG disabled or retriever not available, using no context")
@@ -152,9 +199,17 @@ def build_messages(session_id: str, user_msg: str, system_prompt: str, max_histo
     return [{"role":"system","content":system_prompt}] + hist + [{"role":"user","content":user_msg}]
 
 @app.post("/api/chat", response_model=ChatResponse)
+@timing_decorator("chat_endpoint")
 async def chat(req: ChatRequest):
-    # 1) 检索上下文
-    context, _ = retrieve_context(req.message, k=4)  # 忽略citations
+    # 🚀 Check cache first for faster responses
+    cache_key = _generate_cache_key(req.message, req.session_id, req.max_history or 8)
+    cached_response = response_cache.get(cache_key)
+    if cached_response:
+        print(f"⚡ Cache hit for query: {req.message[:50]}...")
+        return ChatResponse(answer=cached_response)
+    
+    # 1) 检索上下文 (async optimized)
+    context, _ = await retrieve_context(req.message, k=4)  # 忽略citations
     
     # 使用身份管理系统构建身份提示词
     base_identity = get_agent_identity_prompt()
@@ -181,98 +236,64 @@ async def chat(req: ChatRequest):
         system_prompt=system_prompt, max_history=req.max_history or 8
     )
     
-    # 3) 智能模型选择和执行聊天 (with automatic fallback)
-    estimated_tokens = estimate_tokens(str(messages))
-    selected_tier, selection_reason = await model_manager.get_optimal_model(estimated_tokens)
-    
-    answer = None
-    model_info = None
-    max_fallback_attempts = 4  # Try up to 4 different models (all OpenAI + local)
-    
-    for attempt in range(max_fallback_attempts):
-        try:
-            print(f"🔄 Attempt {attempt + 1}: Trying {selected_tier.value}")
-            # 4) 执行聊天
-            completion = await model_manager.execute_chat(messages, selected_tier, stream=False)
-            print(f"✅ Got completion from {selected_tier.value}")
-            
-            if selected_tier in [ModelTier.GPT4, ModelTier.GPT4_MINI, ModelTier.GPT35]:
-                answer = completion.choices[0].message.content
-            else:
-                # Handle local model response (Ollama)
-                try:
-                    if hasattr(completion, 'json'):
-                        # Ollama response
-                        response_data = completion.json()
-                        answer = response_data.get('response', 'Local model response')
-                        print(f"✅ Local model response: {answer[:100]}...")
-                    elif hasattr(completion, 'text'):
-                        answer = completion.text
-                        print(f"✅ Local model text: {answer[:100]}...")
-                    else:
-                        answer = str(completion)
-                        print(f"✅ Local model string: {answer[:100]}...")
-                except Exception as parse_error:
-                    print(f"⚠️ Error parsing local model response: {parse_error}")
-                    answer = "Local model responded but couldn't parse the response."
-            
-            # Success! Break out of retry loop
-            model_info = model_manager.get_current_model_info()
-            break
-            
-        except Exception as e:
-            print(f"Model {selected_tier.value} failed (attempt {attempt + 1}): {str(e)}")
-            
-            # Check if this is a quota/rate limit error OR connection error
-            error_str = str(e)
-            is_recoverable_error = (
-                "429" in error_str or 
-                "insufficient_quota" in error_str or 
-                "rate_limit" in error_str or
-                "Connection error" in error_str or
-                "timeout" in error_str.lower()
-            )
-            
-            if is_recoverable_error:
-                # Try to get next available model
-                print(f"🔄 Recoverable error detected, attempting fallback...")
-                try:
-                    next_tier, next_reason = await model_manager.get_optimal_model(estimated_tokens)
-                    if next_tier != selected_tier:
-                        print(f"🔄 Switching from {selected_tier.value} to {next_tier.value}")
-                        selected_tier = next_tier
-                        selection_reason = next_reason
-                        continue  # Try again with new model
-                except Exception as fallback_error:
-                    print(f"Fallback selection failed: {fallback_error}")
-            
-            # If this is the last attempt or not a recoverable error, fail
-            if attempt == max_fallback_attempts - 1:
-                answer = f"⚠️ All models temporarily unavailable. Error: {str(e)}"
-                model_info = {"model_name": "fallback", "tier": "error"}
-                break
+    # 3) 使用当前选择的模型执行聊天
+    try:
+        print(f"🔄 Using selected model: {model_manager.selected_model.value}")
+        completion = await model_manager.execute_chat(messages, stream=False)
+        print(f"✅ Got completion from {model_manager.selected_model.value}")
+        
+        # 4) 处理响应
+        model_info = model_manager.get_current_model_info()
+        
+        if model_info['is_local']:
+            # Handle local model response (Ollama)
+            try:
+                if hasattr(completion, 'json'):
+                    # Ollama response
+                    response_data = completion.json()
+                    answer = response_data.get('response', 'Local model response')
+                    print(f"✅ Local model response: {answer[:100]}...")
+                elif hasattr(completion, 'text'):
+                    answer = completion.text
+                    print(f"✅ Local model text: {answer[:100]}...")
+                else:
+                    answer = str(completion)
+                    print(f"✅ Local model string: {answer[:100]}...")
+            except Exception as parse_error:
+                print(f"⚠️ Error parsing local model response: {parse_error}")
+                answer = "Local model responded but couldn't parse the response."
+        else:
+            # Handle OpenAI model response
+            answer = completion.choices[0].message.content
+            print(f"✅ OpenAI model response: {answer[:100]}...")
+
+    except Exception as e:
+        print(f"❌ Error with model {model_manager.selected_model.value}: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Error processing chat request: {str(e)}"
+        )
 
     # 🧠 集成记忆和个性化系统 (only if we got a successful response)
     if answer and not answer.startswith("⚠️"):
         try:
-            user_style = personality_system.analyze_user_style(req.session_id)
-            relevant_memories = memory_system.get_relevant_memory(req.message, req.session_id, limit=3)
+            # 🚀 Use optimized memory system with caching
+            user_style = optimized_memory.get_user_style_cached(req.session_id)
+            relevant_memories = memory_system.get_relevant_memory(req.message, req.session_id, limit=2)  # Reduced for speed
             
-            # 如果有相关记忆，增强回答
+            # 如果有相关记忆，增强回答 (simplified for speed)
             if relevant_memories:
-                memory_context = "\n\n🧠 **Based on our previous conversations:**\n"
-                for mem in relevant_memories[:2]:  # 只显示最相关的2个
-                    memory_context += f"- {mem['user_message'][:50]}... → {mem['assistant_response'][:100]}...\n"
+                memory_context = "\n\n🧠 **Based on previous chat:**\n"
+                mem = relevant_memories[0]  # Only show most relevant one
+                memory_context += f"- {mem['user_message'][:40]}... → {mem['assistant_response'][:80]}...\n"
                 answer = memory_context + answer
             
             # 根据用户风格调整回应
             answer = personality_system.adapt_response_style(answer, user_style)
             
-            # Add model info with learning stats
-            learning_stats = memory_system.get_learning_stats()
-            answer += f"\n\n*[Used: {model_info['model_name']} - {selection_reason}]*"
-            if learning_stats['total_conversations'] > 0:
-                answer += f"\n*[💡 Learned from {learning_stats['total_conversations']} conversations, mastered {learning_stats['learned_concepts']} concepts]*"
+            # Add model info for transparency
+            answer += f"\n\n*[{model_info['display_name']}]*"
+            
         except Exception as memory_error:
             print(f"Memory/personality error (non-critical): {memory_error}")
     
@@ -280,14 +301,16 @@ async def chat(req: ChatRequest):
     if not answer:
         answer = "⚠️ Unable to generate response. Please try again."
 
-    # 🎯 存储到记忆系统
+    # 🚀 Cache successful responses
+    if answer and not answer.startswith("⚠️"):
+        response_cache.set(cache_key, answer)
+
+    # 🎯 存储到记忆系统 (async background task for speed)
     try:
-        memory_system.store_conversation(
-            session_id=req.session_id,
-            user_message=req.message,
-            assistant_response=answer,
-            context_used=context if context else None
-        )
+        # Store in background to not block response
+        asyncio.create_task(store_conversation_async(
+            req.session_id, req.message, answer, context if context else None
+        ))
     except Exception as memory_error:
         print(f"Memory storage error: {memory_error}")
 
@@ -298,10 +321,21 @@ async def chat(req: ChatRequest):
     ])
     return ChatResponse(answer=answer)
 
+# 🚀 Async helper function for non-blocking memory storage
+async def store_conversation_async(session_id: str, user_message: str, assistant_response: str, context_used: str = None):
+    """Store conversation asynchronously to not block response"""
+    try:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, memory_system.store_conversation, 
+                                   session_id, user_message, assistant_response, context_used)
+    except Exception as e:
+        print(f"Async memory storage error: {e}")
+
 @app.post("/api/chat_stream")
+@timing_decorator("chat_stream_endpoint")
 async def chat_stream(req: StreamChatRequest):
-    # Build context
-    context, _ = retrieve_context(req.message, k=4)  # 忽略citations
+    # 🚀 Build context (async optimized)
+    context, _ = await retrieve_context(req.message, k=4)  # 忽略citations
     
     # 使用身份管理系统构建身份提示词  
     base_identity = get_agent_identity_prompt()
@@ -327,88 +361,63 @@ async def chat_stream(req: StreamChatRequest):
         accumulated = []
         import json
         
-        # 智能模型选择
-        estimated_tokens = estimate_tokens(str(messages))
-        selected_tier, selection_reason = await model_manager.get_optimal_model(estimated_tokens)
+        # Get current model info
+        model_info = model_manager.get_current_model_info()
         
         # Send model info
-        model_info = model_manager.get_current_model_info()
         yield _sse_format("model_info", json.dumps({
-            "model": model_info['model_name'],
-            "tier": model_info['tier'],
-            "reason": selection_reason
+            "model": model_info['display_name'],
+            "id": model_info['id'],
+            "is_local": model_info['is_local']
         }))
         
-        # Try multiple models with automatic fallback
-        max_retries = 3
-        current_tier = selected_tier
-        success = False
-        
-        for retry_count in range(max_retries):
-            try:
-                # Execute streaming chat
-                stream = await model_manager.execute_chat(messages, current_tier, stream=True)
+        try:
+            # Execute chat with selected model
+            stream = await model_manager.execute_chat(messages, stream=True)
+            
+            if model_info['is_local']:
+                # Handle local model streaming (Ollama format)
+                print("🦙 Processing Ollama streaming response...")
                 
-                if current_tier in [ModelTier.GPT4, ModelTier.GPT4_MINI, ModelTier.GPT35]:
-                    # Handle OpenAI streaming
-                    for chunk in stream:
-                        choice = chunk.choices[0]
-                        delta = getattr(choice, 'delta', None) or getattr(choice, 'message', None) or None
-                        if delta and delta.content:
-                            text_part = delta.content
-                            accumulated.append(text_part)
-                            yield _sse_format(None, text_part)
-                else:
-                    # Handle local model streaming (Ollama format)
-                    import json as json_lib
-                    for line in stream.iter_lines():
-                        if line:
-                            try:
-                                chunk_data = json_lib.loads(line)
-                                if 'response' in chunk_data:
-                                    text_part = chunk_data['response']
+                for line in stream.iter_lines():
+                    if line:
+                        try:
+                            # Decode bytes to string if needed
+                            if isinstance(line, bytes):
+                                line_str = line.decode('utf-8')
+                            else:
+                                line_str = line
+                            
+                            chunk_data = json.loads(line_str.strip())
+                            
+                            if 'response' in chunk_data:
+                                text_part = chunk_data['response']
+                                if text_part:
                                     accumulated.append(text_part)
                                     yield _sse_format(None, text_part)
-                            except:
-                                continue
-                
-                success = True
-                break  # Success, exit retry loop
                             
-            except Exception as e:
-                error_msg = f"⚠️ Model {model_info.get('model_name', 'unknown')} failed: {str(e)}"
-                print(f"Model failure attempt {retry_count + 1}: {error_msg}")
-                
-                # Check if this is a rate limit error and try next model
-                if "rate_limit_exceeded" in str(e) or "429" in str(e) or "insufficient_quota" in str(e):
-                    # Try to get next available model
-                    try:
-                        next_tier, next_reason = await model_manager.get_optimal_model(estimated_tokens)
-                        if next_tier != current_tier and retry_count < max_retries - 1:
-                            print(f"🔄 Rate limit hit, switching from {current_tier.value} to {next_tier.value}")
-                            current_tier = next_tier
-                            
-                            # Update model info for user
-                            model_info = model_manager.get_current_model_info()
-                            yield _sse_format("model_info", json.dumps({
-                                "model": model_info['model_name'],
-                                "tier": next_tier.value,
-                                "reason": f"Fallback: {next_reason}"
-                            }))
-                            continue  # Try again with new model
-                    except:
-                        pass
-                
-                # If this is the last retry AND it's not a quota/rate limit error, show error
-                # Don't show quota errors to user - they should be handled silently by fallback
-                if retry_count == max_retries - 1 and not ("429" in str(e) or "insufficient_quota" in str(e) or "rate_limit_exceeded" in str(e)):
-                    accumulated.append(error_msg)
-                    yield _sse_format(None, error_msg)
-                    break
-                elif retry_count == max_retries - 1:
-                    # For quota errors on final retry, just break without showing error
-                    print(f"All models exhausted due to quota limits")
-                    break
+                            if chunk_data.get('done', False):
+                                print("🦙 Local model streaming completed")
+                                break
+                                
+                        except json.JSONDecodeError as json_err:
+                            print(f"🦙 JSON decode error: {json_err}")
+                            continue
+            else:
+                # Handle OpenAI streaming
+                for chunk in stream:
+                    choice = chunk.choices[0]
+                    delta = getattr(choice, 'delta', None) or getattr(choice, 'message', None)
+                    if delta and delta.content:
+                        text_part = delta.content
+                        accumulated.append(text_part)
+                        yield _sse_format(None, text_part)
+                        
+        except Exception as e:
+            error_msg = f"⚠️ Model {model_info['display_name']} failed: {str(e)}"
+            print(f"Model execution error: {error_msg}")
+            accumulated.append(error_msg)
+            yield _sse_format(None, error_msg)
         
         full_text = ''.join(accumulated)
         
@@ -421,7 +430,7 @@ async def chat_stream(req: StreamChatRequest):
         
         # Add model signature with learning info
         learning_stats = memory_system.get_learning_stats()
-        signature = f"\n\n*[Generated by: {model_info.get('model_name', 'unknown')} - {selection_reason}]*"
+        signature = f"\n\n*[Generated by: {model_info.get('display_name', 'unknown')}]*"
         if learning_stats['total_conversations'] > 0:
             signature += f"\n*[💡 Learned from {learning_stats['total_conversations']} conversations, mastered {learning_stats['learned_concepts']} concepts]*"
         
@@ -448,35 +457,57 @@ async def chat_stream(req: StreamChatRequest):
         ])
         yield _sse_format("done", "true")
 
-    return StreamingResponse(token_stream(), media_type="text/event-stream")
+    # Add headers to prevent buffering for real-time streaming
+    headers = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",  # Disable nginx buffering
+    }
+    
+    return StreamingResponse(
+        token_stream(), 
+        media_type="text/event-stream",
+        headers=headers
+    )
 
 @app.get("/api/model_status")
 async def get_model_status():
-    """Get current model status and availability"""
-    model_info = model_manager.get_current_model_info()
+    """Get current model status"""
+    current_model = model_manager.get_current_model_info()
+    return {
+        "current_model": current_model,
+        "available_models": model_manager.get_available_models()
+    }
+
+@app.get("/api/performance_stats")
+async def get_performance_stats():
+    """🚀 Get performance statistics and optimization metrics"""
     
-    # Check availability of all models
-    model_availability = {}
-    for tier in ModelTier:
-        try:
-            can_use = await model_manager._can_use_model(tier, 1000)  # Test with 1k tokens
-            model_availability[tier.value] = {
-                "available": can_use,
-                "config": {
-                    "name": MODEL_CONFIGS[tier].name,
-                    "max_tokens": MODEL_CONFIGS[tier].max_tokens,
-                    "cost_per_1k": MODEL_CONFIGS[tier].cost_per_1k_tokens,
-                    "requires_api": MODEL_CONFIGS[tier].requires_api
-                }
-            }
-        except:
-            model_availability[tier.value] = {"available": False, "config": None}
+    # Get performance metrics
+    performance_stats = {}
+    operations = ["chat_endpoint", "chat_stream_endpoint", "context_retrieval"]
+    
+    for op in operations:
+        stats = perf_monitor.get_stats(op)
+        if stats:
+            performance_stats[op] = stats
+    
+    # Cache statistics
+    cache_stats = {
+        "response_cache_size": len(response_cache.cache),
+        "context_cache_size": len(optimized_retriever.context_cache) if optimized_retriever else 0,
+        "memory_cache_size": len(optimized_memory.memory_cache) if optimized_memory else 0
+    }
     
     return {
-        "current_model": model_info,
-        "model_availability": model_availability,
-        "quota_cache": model_manager.quota_cache,
-        "failure_counts": {k.value: v for k, v in model_manager.failure_counts.items()}
+        "performance_metrics": performance_stats,
+        "cache_statistics": cache_stats,
+        "optimization_status": {
+            "caching_enabled": True,
+            "async_processing": True,
+            "connection_pooling": True,
+            "batch_processing": True
+        }
     }
 
 @app.get("/api/agent_identity")
@@ -538,109 +569,64 @@ async def add_core_memory(memory: CoreMemoryAdd):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to add memory: {str(e)}")
 
-def _get_model_display_name(tier: ModelTier, config: ModelConfig) -> str:
-    """Get user-friendly display name for model"""
-    display_names = {
-        ModelTier.GPT4: "GPT-4o (Best Quality)",
-        ModelTier.GPT4_MINI: "GPT-4o Mini (Balanced)",
-        ModelTier.GPT35: "GPT-3.5 Turbo (Fast)",
-        ModelTier.LOCAL: "Llama 3.1 8B (Local)"
-    }
-    return display_names.get(tier, config.name)
-
-def _get_model_description(tier: ModelTier, config: ModelConfig) -> str:
-    """Get description for model"""
-    descriptions = {
-        ModelTier.GPT4: "Highest quality responses, best for complex tasks",
-        ModelTier.GPT4_MINI: "Great balance of quality and speed, cost-effective",
-        ModelTier.GPT35: "Fast responses, good for simple questions",
-        ModelTier.LOCAL: "Private local model, no API costs, works offline"
-    }
-    return descriptions.get(tier, "AI language model")
-
 @app.get("/api/models")
 async def get_available_models():
-    """Get list of all models for user selection (always shows all models)"""
-    models = []
-    for tier, config in MODEL_CONFIGS.items():
-        try:
-            # Check if model can be used for automatic selection
-            is_auto_available = await model_manager._can_use_model(tier, 1000)
-        except:
-            is_auto_available = False
-        
-        # All models are always selectable manually, regardless of auto availability
-        models.append({
-            "id": tier.value,
-            "name": config.name,
-            "display_name": _get_model_display_name(tier, config),
-            "description": _get_model_description(tier, config),
-            "available": True,  # Always selectable for manual selection
-            "auto_available": is_auto_available,  # Available for automatic selection
-            "is_local": not config.requires_api,
-            "max_tokens": config.max_tokens,
-            "cost_per_1k": config.cost_per_1k_tokens,
-            "failure_count": model_manager.failure_counts.get(tier, 0),
-            "status": "ready" if is_auto_available else ("quota_exceeded" if model_manager.failure_counts.get(tier, 0) > 0 else "unavailable")
-        })
+    """Get list of all models for user selection"""
+    models = model_manager.get_available_models()
     return {"models": models}
 
 @app.post("/api/models/select")
 async def select_model(request: dict):
-    """Allow user to manually select a preferred model (overrides availability checks)"""
+    """Select a model for chat"""
     model_id = request.get("model_id")
     if not model_id:
         raise HTTPException(status_code=400, detail="model_id is required")
     
-    # Find the model tier
-    selected_tier = None
-    for tier in ModelTier:
-        if tier.value == model_id:
-            selected_tier = tier
-            break
-    
-    if not selected_tier:
+    success = model_manager.select_model(model_id)
+    if not success:
         raise HTTPException(status_code=400, detail=f"Invalid model_id: {model_id}")
     
-    # Allow manual selection regardless of current availability status
-    # Reset failure count for manually selected model to give it a fresh chance
-    model_manager.failure_counts[selected_tier] = 0
-    
-    # Set the preferred model
-    model_manager.user_preferred_model = selected_tier
-    model_manager.current_tier = selected_tier
-    model_manager.is_user_selected = True
-    
-    config = MODEL_CONFIGS[selected_tier]
-    status_message = "Successfully switched to"
-    
-    # Check if model might have issues and warn user
-    if not config.requires_api:
-        status_message = "Successfully switched to"
-    elif model_manager.client is None:
-        status_message = "Switched to (Note: No OpenAI API key configured)"
-    else:
-        status_message = "Successfully switched to"
-    
+    current_model = model_manager.get_current_model_info()
     return {
         "success": True,
-        "message": f"{status_message} {_get_model_display_name(selected_tier, config)}",
-        "current_model": model_manager.get_current_model_info()
+        "message": f"Successfully switched to {current_model['display_name']}",
+        "current_model": current_model
     }
 
-@app.post("/api/models/auto")
-async def enable_auto_model():
-    """Re-enable automatic model selection"""
-    model_manager.user_preferred_model = None
-    estimated_tokens = 1000
-    selected_tier, reason = await model_manager.get_optimal_model(estimated_tokens)
-    
-    return {
-        "success": True,
-        "message": "Automatic model selection enabled",
-        "current_model": model_manager.get_current_model_info(),
-        "selection_reason": reason
-    }
+@app.get("/api/models/current")
+async def get_current_model():
+    """Get current selected model"""
+    return {"current_model": model_manager.get_current_model_info()}
+
+@app.post("/api/performance/clear_cache")
+async def clear_performance_cache():
+    """🚀 Clear all performance caches for fresh start"""
+    try:
+        # Clear response cache
+        response_cache.clear()
+        
+        # Clear context cache if available
+        if optimized_retriever:
+            optimized_retriever.context_cache.clear()
+            optimized_retriever.cache_timestamps.clear()
+        
+        # Clear user style cache
+        if hasattr(optimized_memory, 'get_user_style_cached'):
+            optimized_memory.get_user_style_cached.cache_clear()
+        
+        return {
+            "success": True,
+            "message": "All performance caches cleared successfully",
+            "cache_sizes": {
+                "response_cache": len(response_cache.cache),
+                "context_cache": len(optimized_retriever.context_cache) if optimized_retriever else 0
+            }
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Error clearing caches: {str(e)}"
+        }
 
 # Create upload directory
 UPLOAD_DIR = Path("uploads")
