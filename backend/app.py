@@ -9,7 +9,6 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from openai import OpenAI
-import asyncio
 import time
 import hashlib
 
@@ -166,33 +165,6 @@ async def retrieve_context(query: str, k: int = 4):
     except Exception as e:
         print(f"⚠️ RAG retrieval failed (falling back to no context): {e}")
         return "", []
-
-# Legacy sync version for backward compatibility
-def retrieve_context_sync(query: str, k: int = 4):
-    """Synchronous version of retrieve_context"""
-    try:
-        if not USE_RAG or retriever is None:
-            print(f"🔍 RAG disabled or retriever not available, using no context")
-            docs = []
-        else:
-            docs = retriever.invoke(query)
-            print(f"🔍 Retrieved {len(docs)} documents for query: '{query}'")
-    except Exception as e:
-        print(f"⚠️ RAG retrieval failed (falling back to no context): {e}")
-        docs = []
-    
-    cites, parts = [], []
-    for i, d in enumerate(docs, 1):
-        src  = d.metadata.get("source", "unknown")
-        page = d.metadata.get("page")
-        preview = d.page_content[:240].replace("\n", " ")
-        cites.append({"source": src, "preview": preview, "page": str(page) if page is not None else ""})
-        parts.append(f"[{i}] {d.page_content}\n(source: {src}" + (f", page: {page})" if page is not None else ")"))
-    
-    context = "\n\n".join(parts)
-    print(f"📄 Context length: {len(context)} chars")
-    return context, cites
-
 def build_messages(session_id: str, user_msg: str, system_prompt: str, max_history: int):
     history = SESSIONS.get(session_id, [])
     hist = history[-(max_history*2):] if (max_history and max_history>0) else history

@@ -1,6 +1,7 @@
 import './crypto-polyfill'
 import './styles.css'
-import React, { useEffect, useRef, useState } from 'react'
+import './performance-styles.css'
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -73,8 +74,73 @@ export default function App(){
     return sessions[0].id
   })
 
-  const currentSession = sessions.find(s=>s.id===currentId)! // guaranteed
-  const messages = currentSession.messages
+  // Performance-optimized current session and messages
+  const currentSession = useMemo(() => 
+    sessions.find(s => s.id === currentId) || sessions[0], [sessions, currentId]
+  )
+  const messages = useMemo(() => currentSession?.messages || [], [currentSession])
+
+  // Memoized message component to prevent unnecessary re-renders
+  const MessageComponent = useMemo(() => React.memo(({ message }: { message: Msg }) => (
+    <div className={`message-wrapper ${message.who}`} key={`${message.who}-${message.text?.slice(0, 20)}`}>
+      <div className={`message-bubble ${message.who === 'user' ? 'user-message' : 'bot-message'}`}>
+        <div className="message-meta">
+          <div className="message-avatar">
+            <div className={`avatar-${message.who}`}>
+              {message.who === 'user' ? (
+                <svg viewBox="0 0 24 24" fill="none" className="avatar-icon">
+                  <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" fill="currentColor"/>
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" fill="none" className="avatar-icon">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.94-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" fill="currentColor"/>
+                </svg>
+              )}
+            </div>
+          </div>
+          <div className="message-info">
+            <span className="sender-name">{message.who === 'user' ? 'You' : 'AUV'}</span>
+            <span className="message-time">{new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+          </div>
+        </div>
+        <div className="message-content">
+          <div className="message-text">
+            {/* Handle image messages specially to prevent download behavior */}
+            {message.text && message.text.includes('[Image:') ? (
+              <div className="image-message">
+                {message.text.split('\n\n').map((part, idx) => 
+                  part.startsWith('[Image:') ? (
+                    <div key={idx} className="image-indicator">
+                      📷 {part.replace(/^\[Image:\s*|\]$/g, '')}
+                    </div>
+                  ) : part ? (
+                    <ReactMarkdown key={idx} remarkPlugins={[remarkGfm]}>
+                      {part}
+                    </ReactMarkdown>
+                  ) : null
+                )}
+              </div>
+            ) : (
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {message.text || ''}
+              </ReactMarkdown>
+            )}
+          </div>
+          <div className="message-status">
+            {message.who === 'user' && (
+              <svg viewBox="0 0 16 16" className="check-icon">
+                <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z" fill="currentColor"/>
+              </svg>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  ), (prevProps, nextProps) => {
+    // Only re-render if message text actually changed
+    return prevProps.message.text === nextProps.message.text && 
+           prevProps.message.who === nextProps.message.who
+  }), [])
 
   // Model selection state
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([])
@@ -101,27 +167,29 @@ export default function App(){
     })
   }
 
-  // Session management
-  function createSession(){
+  // Session management - optimized with useCallback
+  const createSession = useCallback(() => {
     const idx = sessions.length + 1
-  const s: Session = { id: safeUUID(), name:`Session ${idx}`, created: Date.now(), messages: [] }
-    setSessions(ss=>[...ss, s])
+    const s: Session = { id: safeUUID(), name: `Session ${idx}`, created: Date.now(), messages: [] }
+    setSessions(ss => [...ss, s])
     setCurrentId(s.id)
-  }
-  function renameSession(id:string){
-    const name = prompt('New session name?')?.trim(); if(!name) return
-    setSessions(ss=> ss.map(s=> s.id===id ? {...s, name} : s))
-  }
-  function deleteSession(id:string){
-    if(sessions.length===1){ alert('At least one session is required.'); return }
-    if(!confirm('Delete this session and its messages?')) return
-    setSessions(ss=> ss.filter(s=> s.id!==id))
-    if(id===currentId){
+  }, [sessions.length])
+  
+  const renameSession = useCallback((id: string) => {
+    const name = prompt('New session name?')?.trim(); if (!name) return
+    setSessions(ss => ss.map(s => s.id === id ? { ...s, name } : s))
+  }, [])
+  
+  const deleteSession = useCallback((id: string) => {
+    if (sessions.length === 1) { alert('At least one session is required.'); return }
+    if (!confirm('Delete this session and its messages?')) return
+    setSessions(ss => ss.filter(s => s.id !== id))
+    if (id === currentId) {
       // pick another remaining session
-      const remaining = sessions.filter(s=> s.id!==id)
-      if(remaining.length) setCurrentId(remaining[0].id)
+      const remaining = sessions.filter(s => s.id !== id)
+      if (remaining.length) setCurrentId(remaining[0].id)
     }
-  }
+  }, [sessions, currentId])
 
   // UI state
   const [loading, setLoading] = useState(false)
@@ -139,6 +207,9 @@ export default function App(){
   const [selectedImage, setSelectedImage] = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
+
+  // Drag and drop state
+  const [isDragOver, setIsDragOver] = useState(false)
 
   // 🧠 Learning and growth related state
   const [showLearningPanel, setShowLearningPanel] = useState(false)
@@ -405,10 +476,13 @@ export default function App(){
     const text = (inputRef.current?.value || '').trim()
     if((!text && !selectedImage) || loading) return
     
+    // Store image reference before clearing
+    const imageToSend = selectedImage
+    
     // Prepare user message content
     let userMessageText = text
-    if (selectedImage) {
-      userMessageText = `${text ? text + '\n\n' : ''}[Image: ${selectedImage.name}]`
+    if (imageToSend) {
+      userMessageText = `${text ? text + '\n\n' : ''}[Image: ${imageToSend.name}]`
     }
     
     // append user message
@@ -422,6 +496,10 @@ export default function App(){
     
     // Don't add placeholder bot message, just use loading indicator
     if(inputRef.current) inputRef.current.value=''
+    
+    // Clear selected image immediately after sending
+    clearSelectedImageFunction()
+    
     setLoading(true)
 
     if(useStream){
@@ -434,43 +512,61 @@ export default function App(){
         controller.abort()
       }, 30000)
       
-      // Simple immediate updates with minimal optimization
-      const addTextToBot = (text: string) => {
-        if (!botMessageAdded) {
-          // First chunk - add new bot message
-          botMessageAdded = true
-          console.log('➕ Adding first bot message')
-          updateCurrentMessages(msgs => [...msgs, { who: 'bot' as const, text }])
-        } else {
-          // Subsequent chunks - append to existing bot message
-          updateCurrentMessages(msgs => {
-            const lastIndex = msgs.length - 1
-            if (lastIndex >= 0 && msgs[lastIndex].who === 'bot') {
-              const newMessages = [...msgs]
-              newMessages[lastIndex] = {...msgs[lastIndex], text: msgs[lastIndex].text + text}
-              return newMessages
+      // Optimized batched streaming updates
+      let updateBuffer = ''
+      let rafId: number | null = null
+      let botMessageIndex = -1
+      
+      const flushBatchedUpdate = () => {
+        if (updateBuffer.length === 0) return
+        
+        const textToAdd = updateBuffer
+        updateBuffer = ''
+        
+        updateCurrentMessages(msgs => {
+          if (botMessageIndex === -1) {
+            // First chunk - add new bot message
+            botMessageIndex = msgs.length
+            console.log('➕ Adding first bot message')
+            return [...msgs, { who: 'bot' as const, text: textToAdd }]
+          } else {
+            // Subsequent chunks - append to existing bot message
+            const newMessages = [...msgs]
+            if (newMessages[botMessageIndex]) {
+              newMessages[botMessageIndex] = {
+                ...newMessages[botMessageIndex], 
+                text: newMessages[botMessageIndex].text + textToAdd
+              }
             }
-            return msgs
-          })
-        }
+            return newMessages
+          }
+        })
+      }
+      
+      const addTextToBot = (text: string) => {
+        updateBuffer += text
+        
+        // Cancel previous RAF and schedule new one
+        if (rafId) cancelAnimationFrame(rafId)
+        rafId = requestAnimationFrame(flushBatchedUpdate)
       }
       
       try {
         let resp: Response
-        if (selectedImage) {
+        if (imageToSend) {
           // Use FormData for image upload
           const formData = new FormData()
           formData.append('session_id', currentId)
           formData.append('message', text || '')
           formData.append('max_history', '8')
           formData.append('stream', 'true')
-          formData.append('image', selectedImage)
+          formData.append('image', imageToSend)
           
           console.log('🖼️ Sending image upload request:', {
             sessionId: currentId,
             message: text,
-            imageName: selectedImage.name,
-            imageSize: selectedImage.size
+            imageName: imageToSend.name,
+            imageSize: imageToSend.size
           })
           
           resp = await fetch('/api/chat_stream_with_image', {
@@ -614,20 +710,18 @@ export default function App(){
         console.log('🎯 Setting loading to false in finally block')
         setLoading(false)
         abortRef.current = null
-        // Clear selected image after sending
-        clearSelectedImage()
       }
     } else {
       // non-stream path
       try {
         let resp: Response
-        if (selectedImage) {
+        if (imageToSend) {
           // Use FormData for image upload
           const formData = new FormData()
           formData.append('session_id', currentId)
           formData.append('message', text || '')
           formData.append('max_history', '8')
-          formData.append('image', selectedImage)
+          formData.append('image', imageToSend)
           
           resp = await fetch('/api/chat_with_image', {
             method: 'POST',
@@ -650,16 +744,29 @@ export default function App(){
         updateCurrentMessages(msgs=>[...msgs, {who:'bot', text:'Request failed: '+(e.message||e.toString())}])
       } finally { 
         setLoading(false)
-        // Clear selected image after sending
-        clearSelectedImage()
       }
     }
   }
 
-  function abortStream(){ abortRef.current?.abort() }
+  // Optimized callback functions to prevent unnecessary re-renders
+  const clearHistory = useCallback(() => {
+    updateCurrentMessages(() => [])
+  }, [])
+
+  const abortStream = useCallback(() => {
+    if (abortRef.current) {
+      abortRef.current.abort()
+      abortRef.current = null
+      setLoading(false)
+    }
+  }, [])
+
+  const triggerImageUpload = useCallback(() => {
+    imageInputRef.current?.click()
+  }, [])
 
   // File upload handler
-  async function handleFileUpload(event: React.ChangeEvent<HTMLInputElement>) {
+  const handleFileUpload = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files
     if (!files || files.length === 0) return
 
@@ -715,104 +822,127 @@ export default function App(){
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
     }
-  }
+  }, [])
 
-  function triggerFileUpload() {
+  const triggerFileUpload = useCallback(() => {
     fileInputRef.current?.click()
-  }
+  }, [])
 
-  // Image upload for chat functionality
-  async function handleImageSelect(event: React.ChangeEvent<HTMLInputElement>) {
+  // Enhanced image selection for chat - following Copilot best practices
+  const handleImageSelect = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
 
-    if (!file.type.startsWith('image/')) {
-      alert('Please select an image file')
-      return
-    }
+    await processSelectedImage(file)
+  }, [])
 
-    const uploadMessageId = Date.now().toString()
-    
-    // Add upload message to chat
-    updateCurrentMessages(msgs => [...msgs, {
-      who: 'bot',
-      text: `🖼️ **Uploading image...**\n\n📸 ${file.name}`,
-      id: uploadMessageId
-    }])
-
-    const formData = new FormData()
-    formData.append('files', file)
-
-    try {
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData
-      })
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${await response.text()}`)
-      }
-      
-      const result = await response.json()
-      
-      // Create local preview for chat display
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        const imageDataUrl = e.target?.result as string
-        
-        // Update chat with success message and image preview
-        updateCurrentMessages(msgs => msgs.map(msg => 
-          msg.id === uploadMessageId 
-            ? {
-                ...msg,
-                text: `✅ **Image uploaded successfully!**\n\n📸 ${result.filenames[0]}\n\n![Uploaded Image](${imageDataUrl})\n\nThis image is now available for the RAG assistant to analyze.`
-              }
-            : msg
-        ))
-      }
-      reader.readAsDataURL(file)
-    } catch (e: any) {
-      // Update chat with error message
-      updateCurrentMessages(msgs => msgs.map(msg => 
-        msg.id === uploadMessageId 
-          ? {
-              ...msg,
-              text: `❌ **Image upload failed: ${e.message}**\n\n📸 ${file.name}`
-            }
-          : msg
-      ))
-    } finally {
-      if (imageInputRef.current) imageInputRef.current.value = ''
-    }
-  }
-
-  function triggerImageUpload() {
-    imageInputRef.current?.click()
-  }
-
-  function clearSelectedImage() {
+  const clearSelectedImageFunction = useCallback(() => {
     setSelectedImage(null)
     setImagePreview(null)
     if (imageInputRef.current) {
       imageInputRef.current.value = ''
     }
-  }
+    console.log('🗑️ Cleared selected image')
+  }, [])
 
-  function clearHistory(){
-    if(!messages.length) return
-    if(confirm('Clear messages in this session?')) updateCurrentMessages(()=>[])
-  }
+  // Enhanced drag and drop functionality
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(true)
+  }, [])
 
-  function clearAllSessions(){
-    if(confirm('Delete ALL sessions and messages?')){
-  const fresh: Session = { id: safeUUID(), name:'Session 1', created: Date.now(), messages: [] }
-      setSessions([fresh])
-      setCurrentId(fresh.id)
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    // Only hide drag overlay if leaving the main container
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setIsDragOver(false)
     }
   }
 
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+
+    const files = Array.from(e.dataTransfer.files)
+    const imageFile = files.find(file => file.type.startsWith('image/'))
+    
+    if (imageFile) {
+      await processSelectedImage(imageFile)
+    } else if (files.length > 0) {
+      alert('Please drop an image file (PNG, JPG, GIF, WebP)')
+    }
+  }
+
+  // Helper function to process image files consistently
+  async function processSelectedImage(file: File) {
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file (PNG, JPG, GIF, WebP)')
+      return
+    }
+
+    // Validate file size (max 10MB)
+    const maxSize = 10 * 1024 * 1024 // 10MB
+    if (file.size > maxSize) {
+      alert('Image size must be less than 10MB')
+      return
+    }
+
+    try {
+      // Create image preview
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const result = e.target?.result as string
+        setImagePreview(result)
+      }
+      reader.readAsDataURL(file)
+
+      // Set selected image for chat
+      setSelectedImage(file)
+      
+      // Log for debugging
+      console.log('📷 Image selected for chat:', {
+        name: file.name,
+        size: file.size,
+        type: file.type
+      })
+
+    } catch (e: any) {
+      console.error('Error processing image:', e)
+      alert(`Error processing image: ${e.message}`)
+    }
+  }
+
+  const clearAllSessions = useCallback(() => {
+    if (confirm('Delete ALL sessions and messages?')) {
+      const fresh: Session = { id: safeUUID(), name: 'Session 1', created: Date.now(), messages: [] }
+      setSessions([fresh])
+      setCurrentId(fresh.id)
+    }
+  }, [])
+
   return (
-    <div className="flex" style={{height:'100vh'}}>
+    <div 
+      className="flex" 
+      style={{height:'100vh'}}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      
+      {/* Drag and Drop Overlay */}
+      {isDragOver && (
+        <div className="drag-overlay">
+          <div className="drag-content">
+            <div className="drag-icon">📷</div>
+            <div className="drag-text">Drop image here to chat</div>
+            <div className="drag-subtext">PNG, JPG, GIF, WebP supported</div>
+          </div>
+        </div>
+      )}
 
       
       {/* Sidebar */}
@@ -1047,6 +1177,7 @@ export default function App(){
             >
               📤 {uploading ? 'Uploading...' : 'Upload Files & Images'}
             </button>
+            
             <input 
               type="file"
               ref={fileInputRef}
@@ -1054,6 +1185,7 @@ export default function App(){
               multiple
               accept=".txt,.pdf,.doc,.docx,.md,.jpg,.jpeg,.png,.gif,.bmp,.webp"
               style={{ display: 'none' }}
+              className="hidden-file-input"
             />
 
             
@@ -1144,74 +1276,41 @@ export default function App(){
         </div>
 
         <div className="messages-container">
-          {messages.map((m,i)=> (
-            <div key={i} className={`message-wrapper ${m.who}`}>
-              <div className="message-bubble">
-                <div className="message-meta">
-                  <div className="message-avatar">
-                    {m.who==='user' ? (
-                      <div className="avatar-user">
-                        <svg viewBox="0 0 24 24" fill="none" className="avatar-icon">
-                          <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" fill="currentColor"/>
-                        </svg>
-                      </div>
-                    ) : (
-                      <div className="avatar-bot">
-                        <svg viewBox="0 0 24 24" fill="none" className="avatar-icon">
-                          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.94-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" fill="currentColor"/>
-                        </svg>
-                      </div>
-                    )}
-                  </div>
-                  <div className="message-info">
-                    <span className="sender-name">{m.who==='user' ? 'You' : 'AUV'}</span>
-                    <span className="message-time">{new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                  </div>
-                </div>
-                <div className="message-content">
-                  <div className="message-text">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {m.text || ''}
-                    </ReactMarkdown>
-                  </div>
-                  
-
-                  
-                  <div className="message-status">
-                    {m.who === 'user' && (
-                      <svg viewBox="0 0 16 16" className="check-icon">
-                        <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z" fill="currentColor"/>
-                      </svg>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
+          {messages.map((message, i) => (
+            <MessageComponent key={`${message.who}-${i}-${message.text?.slice(0, 20)}`} message={message} />
           ))}
           {loading ? (
-            <div className="message-wrapper bot">
-              <div className="message-bubble loading-message">
+            <div className="message-wrapper bot thinking">
+              <div className="message-bubble thinking-bubble">
                 <div className="message-meta">
                   <div className="message-avatar">
-                    <div className="avatar-bot">
+                    <div className="avatar-bot thinking-avatar">
                       <svg viewBox="0 0 24 24" fill="none" className="avatar-icon">
                         <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.94-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" fill="currentColor"/>
                       </svg>
+                      <div className="brain-waves">
+                        <div className="wave wave-1"></div>
+                        <div className="wave wave-2"></div>
+                        <div className="wave wave-3"></div>
+                      </div>
                     </div>
                   </div>
                   <div className="message-info">
                     <span className="sender-name">AUV</span>
-                    <span className="message-time">Typing...</span>
+                    <span className="message-time thinking-status">
+                      <div className="pulse-dot"></div>
+                      Thinking...
+                    </span>
                   </div>
                 </div>
-                <div className="message-content">
-                  <div className="typing-indicator">
-                    <div className="typing-dots">
-                      <div className="typing-dot"></div>
-                      <div className="typing-dot"></div>
-                      <div className="typing-dot"></div>
+                <div className="message-content thinking-content">
+                  <div className="thinking-animation">
+                    <div className="thinking-dots">
+                      <span className="dot"></span>
+                      <span className="dot"></span>
+                      <span className="dot"></span>
                     </div>
-                    <span className="typing-text">AI is thinking...</span>
+                    <div className="thinking-text">Analyzing your request</div>
                   </div>
                 </div>
               </div>
@@ -1221,32 +1320,40 @@ export default function App(){
         </div>
 
         <div className="input-area">
-          {/* Image preview area */}
-          {imagePreview && (
+          {/* Enhanced image preview area */}
+          {imagePreview && selectedImage && (
             <div className="image-preview-container">
               <div className="image-preview">
-                <img src={imagePreview} alt="Selected" className="preview-image" />
+                <img src={imagePreview} alt="Selected image" className="preview-image" />
                 <button 
                   className="remove-image-btn" 
-                  onClick={clearSelectedImage}
+                  onClick={clearSelectedImageFunction}
                   title="Remove image"
                 >
                   ❌
                 </button>
               </div>
-              <span className="image-name">{selectedImage?.name}</span>
+              <div className="image-info">
+                <span className="image-name">{selectedImage.name}</span>
+                <span className="image-size">
+                  {(selectedImage.size / 1024 / 1024).toFixed(1)} MB
+                </span>
+                <span className="image-ready-badge">✅ Ready to send</span>
+              </div>
             </div>
           )}
           
           <div className="input-wrapper">
-            <button 
-              className="image-upload-btn" 
-              onClick={triggerImageUpload}
-              disabled={loading}
-              title="Upload image"
-            >
-              📷
-            </button>
+            <div className="image-upload-group">
+              <button 
+                className="image-upload-btn primary" 
+                onClick={triggerImageUpload}
+                disabled={loading}
+                title="Upload image"
+              >
+                📷
+              </button>
+            </div>
             <input 
               ref={inputRef}
               className="input-field"
@@ -1269,6 +1376,7 @@ export default function App(){
             accept="image/*"
             onChange={handleImageSelect}
             style={{display: 'none'}}
+            className="hidden-image-input"
           />
         </div>
       </div>
