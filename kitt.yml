@@ -1,0 +1,119 @@
+# kitt.yml for RAG-Chat-App Kubernetes deployment
+# This file describes the main service, backend, frontend, and dependencies
+
+version: v1
+
+project:
+  name: rag-chat-app
+  description: "RAG Chat App - Kubernetes deployment with backend, frontend, and vector DB"
+
+services:
+  backend:
+    type: deployment
+    image: rag-chat-backend:latest
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env:
+      - name: OPENAI_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: openai-secret
+            key: OPENAI_API_KEY
+      - name: PINECONE_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: pinecone-secret
+            key: PINECONE_API_KEY
+      - name: PINECONE_INDEX_NAME
+        value: default-index
+      - name: EMBEDDING_MODEL
+        value: text-embedding-3-small
+    ports:
+      - 8000:8000
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: 1
+        memory: 2Gi
+    livenessProbe:
+      httpGet:
+        path: /health
+        port: 8000
+      initialDelaySeconds: 10
+      periodSeconds: 10
+    readinessProbe:
+      httpGet:
+        path: /health
+        port: 8000
+      initialDelaySeconds: 5
+      periodSeconds: 10
+    volumes:
+      - name: uploads
+        mountPath: /app/uploads
+    volumeMounts:
+      - name: uploads
+        mountPath: /app/uploads
+    secrets:
+      - openai-secret
+      - pinecone-secret
+
+  frontend:
+    type: deployment
+    image: rag-chat-frontend:latest
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - 80:80
+    env: []
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+  nginx:
+    type: deployment
+    image: nginx:alpine
+    ports:
+      - 8080:80
+    volumes:
+      - name: nginx-config
+        mountPath: /etc/nginx/nginx.conf
+        subPath: nginx.conf
+    configMaps:
+      - nginx-config
+
+volumes:
+  - name: uploads
+    persistentVolumeClaim:
+      claimName: uploads-pvc
+  - name: nginx-config
+    configMap:
+      name: nginx-config
+
+secrets:
+  - name: openai-secret
+    keys:
+      - OPENAI_API_KEY
+  - name: pinecone-secret
+    keys:
+      - PINECONE_API_KEY
+
+configMaps:
+  - name: nginx-config
+    files:
+      - path: ./frontend/nginx.conf
+        key: nginx.conf
+
+persistentVolumeClaims:
+  - name: uploads-pvc
+    accessModes: [ReadWriteOnce]
+    resources:
+      requests:
+        storage: 1Gi

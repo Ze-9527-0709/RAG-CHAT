@@ -1,0 +1,80 @@
+# Ingress for external access
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rag-chat-ingress
+  namespace: rag-chat-app
+  labels:
+    app: rag-chat-app
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    # Enable SSE for streaming responses
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    # CORS settings
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Authorization"
+spec:
+  ingressClassName: nginx  # Change based on your ingress controller
+  rules:
+  - host: rag-chat.local  # Change to your domain
+    http:
+      paths:
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: rag-chat-backend
+            port:
+              number: 8000
+      - path: /health
+        pathType: Prefix
+        backend:
+          service:
+            name: rag-chat-backend
+            port:
+              number: 8000
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: rag-chat-frontend
+            port:
+              number: 80
+---
+# Alternative LoadBalancer service (for cloud providers)
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-chat-loadbalancer
+  namespace: rag-chat-app
+  labels:
+    app: rag-chat-app
+  annotations:
+    # AWS specific annotations (uncomment if using AWS)
+    # service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    # service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+    
+    # GCP specific annotations (uncomment if using GCP)
+    # cloud.google.com/load-balancer-type: "External"
+    
+    # Azure specific annotations (uncomment if using Azure)
+    # service.beta.kubernetes.io/azure-load-balancer-resource-group: "your-resource-group"
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+    name: http
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+    name: api
+  selector:
+    app: rag-chat-frontend

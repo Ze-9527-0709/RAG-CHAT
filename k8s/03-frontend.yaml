@@ -1,0 +1,83 @@
+# Frontend Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-chat-frontend
+  namespace: rag-chat-app
+  labels:
+    app: rag-chat-frontend
+    component: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: rag-chat-frontend
+  template:
+    metadata:
+      labels:
+        app: rag-chat-frontend
+        component: frontend
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.25-alpine
+        ports:
+        - containerPort: 80
+          name: http
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+        - name: frontend-dist
+          mountPath: /usr/share/nginx/html
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      initContainers:
+      - name: frontend-builder
+        image: rag-chat-frontend:latest
+        command: ['sh', '-c', 'cp -r /app/dist/* /shared-data/']
+        volumeMounts:
+        - name: frontend-dist
+          mountPath: /shared-data
+      volumes:
+      - name: nginx-config
+        configMap:
+          name: nginx-config
+      - name: frontend-dist
+        emptyDir: {}
+---
+# Frontend Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-chat-frontend
+  namespace: rag-chat-app
+  labels:
+    app: rag-chat-frontend
+    component: frontend
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+    name: http
+  selector:
+    app: rag-chat-frontend

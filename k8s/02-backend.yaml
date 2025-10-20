@@ -1,0 +1,112 @@
+# Backend Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-chat-backend
+  namespace: rag-chat-app
+  labels:
+    app: rag-chat-backend
+    component: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: rag-chat-backend
+  template:
+    metadata:
+      labels:
+        app: rag-chat-backend
+        component: backend
+    spec:
+      containers:
+      - name: backend
+        image: rag-chat-backend:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+          name: http
+        env:
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: api-secrets
+              key: OPENAI_API_KEY
+        - name: PINECONE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: api-secrets
+              key: PINECONE_API_KEY
+        - name: PINECONE_INDEX_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: rag-chat-config
+              key: PINECONE_INDEX_NAME
+        - name: EMBEDDING_MODEL
+          valueFrom:
+            configMapKeyRef:
+              name: rag-chat-config
+              key: EMBEDDING_MODEL
+        - name: AI_AGENT_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: rag-chat-config
+              key: AI_AGENT_NAME
+        - name: OPENAI_MODEL
+          valueFrom:
+            configMapKeyRef:
+              name: rag-chat-config
+              key: OPENAI_MODEL
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: 1
+            memory: 2Gi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: uploads
+          mountPath: /app/uploads
+        - name: database
+          mountPath: /app/data
+      volumes:
+      - name: uploads
+        persistentVolumeClaim:
+          claimName: uploads-pvc
+      - name: database
+        persistentVolumeClaim:
+          claimName: database-pvc
+---
+# Backend Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-chat-backend
+  namespace: rag-chat-app
+  labels:
+    app: rag-chat-backend
+    component: backend
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+    name: http
+  selector:
+    app: rag-chat-backend

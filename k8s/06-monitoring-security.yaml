@@ -1,0 +1,59 @@
+# ServiceMonitor for Prometheus monitoring (if using Prometheus Operator)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: rag-chat-backend-monitor
+  namespace: rag-chat-app
+  labels:
+    app: rag-chat-backend
+spec:
+  selector:
+    matchLabels:
+      app: rag-chat-backend
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 30s
+---
+# NetworkPolicy for security
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: rag-chat-network-policy
+  namespace: rag-chat-app
+spec:
+  podSelector:
+    matchLabels:
+      app: rag-chat-backend
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: rag-chat-frontend
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx  # Allow ingress controller
+    ports:
+    - protocol: TCP
+      port: 8000
+  egress:
+  - {} # Allow all egress (for API calls to OpenAI, Pinecone, etc.)
+---
+# ResourceQuota for namespace
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: rag-chat-quota
+  namespace: rag-chat-app
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 8Gi
+    limits.cpu: "8"
+    limits.memory: 16Gi
+    persistentvolumeclaims: "10"
+    pods: "20"
+    services: "10"
