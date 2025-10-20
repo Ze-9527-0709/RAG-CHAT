@@ -7,8 +7,14 @@ import asyncio
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 from typing import List, Optional
+
+# Import shared models
+from shared.models import (
+    ChatRequest, ChatResponse, StreamChatRequest,
+    UploadResponse, UploadedFilesResponse, LearningStats,
+    GrowthInsights
+)
 
 app = FastAPI()
 
@@ -25,14 +31,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class ChatRequest(BaseModel):
-    session_id: str
-    message: str
-    max_history: int = 8
-    stream: bool = False
-
-class ChatResponse(BaseModel):
-    answer: str
+# Models moved to shared/models.py
 
 # Session storage for mock backend
 MOCK_SESSIONS = {}

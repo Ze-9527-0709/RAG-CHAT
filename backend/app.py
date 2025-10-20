@@ -7,7 +7,6 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 from openai import OpenAI
 import time
 import hashlib
@@ -16,6 +15,14 @@ import hashlib
 from performance_optimizations import (
     response_cache, OptimizedRetriever, OptimizedMemorySystem, 
     perf_monitor, timing_decorator, async_cache
+)
+
+# ---- 共享模块导入 ----
+from shared.models import (
+    ChatRequest, ChatResponse, StreamChatRequest,
+    UploadResponse, UploadedFilesResponse, FeedbackRequest,
+    LearningStats, GrowthInsights, AgentIdentityUpdate,
+    CoreMemoryAdd, PerformanceStats
 )
 
 # ---- 简化的模型管理系统 ----
@@ -118,17 +125,6 @@ agent_identity = AgentIdentityManager("agent_identity.db")
 # 🚀 Initialize optimized memory system
 optimized_memory = OptimizedMemorySystem("conversations.db")
 
-class ChatRequest(BaseModel):
-    session_id: str
-    message: str
-    max_history: int | None = 8
-
-class ChatResponse(BaseModel):
-    answer: str
-
-class StreamChatRequest(ChatRequest):
-    stream: bool | None = True
-
 def _sse_format(event: str | None, data: str):
     if event:
         return f"event: {event}\ndata: {data}\n\n"
@@ -147,6 +143,7 @@ def _generate_cache_key(message: str, session_id: str, max_history: int = 8) -> 
 
 @app.get("/health")
 def health():
+    """Health check endpoint"""
     return {"status": "ok"}
 
 @timing_decorator("context_retrieval")
@@ -506,10 +503,7 @@ async def get_agent_identity():
         "personality_evolution": agent_identity.get_personality_evolution()
     }
 
-class AgentIdentityUpdate(BaseModel):
-    name: str
-    personality: str
-    core_traits: dict = {}
+# AgentIdentityUpdate model moved to shared/models.py
 
 @app.post("/api/agent_identity")
 async def update_agent_identity(identity: AgentIdentityUpdate):
@@ -529,10 +523,7 @@ async def update_agent_identity(identity: AgentIdentityUpdate):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update identity: {str(e)}")
 
-class CoreMemoryAdd(BaseModel):
-    memory_type: str  # 'identity', 'creator', 'purpose', 'relationship'
-    content: str
-    importance: int = 10
+# CoreMemoryAdd model moved to shared/models.py
 
 @app.post("/api/agent_memory")
 async def add_core_memory(memory: CoreMemoryAdd):
@@ -1238,17 +1229,7 @@ async def list_uploaded_files():
 # 🧠 AI成长与学习API (Memory & Personality System)
 # =====================================================
 
-class FeedbackRequest(BaseModel):
-    conversation_id: str
-    feedback_type: str  # 'positive', 'negative', 'correction', 'suggestion'
-    content: str
-
-class LearningStatsResponse(BaseModel):
-    total_conversations: int
-    learned_concepts: int
-    total_feedback: int
-    top_concepts: List[Dict]
-    user_style_analysis: Dict
+# FeedbackRequest and LearningStatsResponse models moved to shared/models.py
 
 @app.post("/api/feedback")
 async def add_feedback(feedback: FeedbackRequest):
@@ -1276,7 +1257,7 @@ async def get_learning_stats(session_id: str):
         # 获取该用户的对话历史统计
         user_conversations = memory_system.get_relevant_memory("", session_id, limit=100)
         
-        return LearningStatsResponse(
+        return LearningStats(
             total_conversations=base_stats['total_conversations'],
             learned_concepts=base_stats['learned_concepts'],
             total_feedback=base_stats['total_feedback'],
