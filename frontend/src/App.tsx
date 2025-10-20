@@ -1,6 +1,7 @@
 import './crypto-polyfill'
 import './styles.css'
 import './performance-styles.css'
+import './optimized-message-styles.css'
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -114,14 +115,23 @@ export default function App(){
                       📷 {part.replace(/^\[Image:\s*|\]$/g, '')}
                     </div>
                   ) : part ? (
-                    <ReactMarkdown key={idx} remarkPlugins={[remarkGfm]}>
+                    <ReactMarkdown 
+                      key={idx} 
+                      remarkPlugins={[remarkGfm]}
+                      skipHtml={true}
+                      disallowedElements={['script', 'iframe']}
+                    >
                       {part}
                     </ReactMarkdown>
                   ) : null
                 )}
               </div>
             ) : (
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              <ReactMarkdown 
+                remarkPlugins={[remarkGfm]}
+                skipHtml={true}
+                disallowedElements={['script', 'iframe']}
+              >
                 {message.text || ''}
               </ReactMarkdown>
             )}
@@ -154,12 +164,15 @@ export default function App(){
 
   // Helper to mutate current session messages (simplified for reliability)
   function updateCurrentMessages(mutator:(msgs:Msg[])=>Msg[]){
+    console.log('🚨 DEBUG - updateCurrentMessages called for session:', currentId)
     setSessions(all => {
       const targetIndex = all.findIndex(s => s.id === currentId)
+      console.log('🚨 DEBUG - Found session at index:', targetIndex)
       if (targetIndex === -1) return all
       
       const targetSession = all[targetIndex]
       const newMessages = mutator(targetSession.messages)
+      console.log('🚨 DEBUG - Session messages before:', targetSession.messages.length, 'after:', newMessages.length)
       
       const newAll = [...all]
       newAll[targetIndex] = {...targetSession, messages: newMessages}
@@ -221,8 +234,77 @@ export default function App(){
   const [uploadedFiles, setUploadedFiles] = useState<any[]>([])
   const [processingFiles, setProcessingFiles] = useState(false)
 
-  // Auto scroll on message or loading state changes
-  useEffect(()=>{ bottomRef.current?.scrollIntoView({behavior:'smooth'}) }, [messages, loading, currentId])
+  // Smart auto-scroll: only scroll when user is already at bottom
+  const [shouldAutoScroll, setShouldAutoScroll] = useState(true)
+  const chatContainerRef = useRef<HTMLDivElement>(null)
+  const lastScrollTime = useRef<number>(0)
+  const userScrolling = useRef<boolean>(false)
+  const [isScrolling, setIsScrolling] = useState(false)
+  const autoScrollTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const scrollDetectionTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  
+  // Smooth scroll to bottom function
+  const scrollToBottom = useCallback(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTo({
+        top: chatContainerRef.current.scrollHeight,
+        behavior: 'smooth'
+      })
+    }
+  }, [])
+  
+  // Check if user is at bottom of chat
+  const isAtBottom = useCallback(() => {
+    if (!chatContainerRef.current) return true
+    const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current
+    return Math.abs(scrollHeight - clientHeight - scrollTop) < 50 // Tighter threshold for precision
+  }, [])
+  
+  // Optimized scroll handler with better debouncing
+  const handleScroll = useCallback(() => {
+    const now = Date.now()
+    lastScrollTime.current = now
+    userScrolling.current = true
+    
+    // Add scrolling class to disable expensive effects
+    if (!isScrolling) {
+      setIsScrolling(true)
+    }
+    
+    // Clear previous timeout
+    if (scrollDetectionTimeoutRef.current) {
+      clearTimeout(scrollDetectionTimeoutRef.current)
+    }
+    
+    // Debounce user scroll detection
+    scrollDetectionTimeoutRef.current = setTimeout(() => {
+      userScrolling.current = false
+      setIsScrolling(false)
+      setShouldAutoScroll(isAtBottom())
+    }, 150) // Faster response for better UX
+  }, [isAtBottom, isScrolling])
+  
+  // Smooth auto-scroll with proper cleanup
+  useEffect(() => {
+    // Clear any existing auto-scroll timeout
+    if (autoScrollTimeoutRef.current) {
+      clearTimeout(autoScrollTimeoutRef.current)
+    }
+    
+    if (shouldAutoScroll && !userScrolling.current) {
+      autoScrollTimeoutRef.current = setTimeout(() => {
+        if (!userScrolling.current && shouldAutoScroll) {
+          scrollToBottom()
+        }
+      }, 50) // Faster response for streaming
+    }
+    
+    return () => {
+      if (autoScrollTimeoutRef.current) {
+        clearTimeout(autoScrollTimeoutRef.current)
+      }
+    }
+  }, [messages.length, shouldAutoScroll, scrollToBottom])
 
   // Auto-fetch learning stats when panel is opened or session changes
   useEffect(() => {
@@ -471,8 +553,18 @@ export default function App(){
     }
   }
 
+  // Handle send button click with auto-scroll
+  const handleSendClick = useCallback(() => {
+    console.log('🚨 DEBUG - handleSendClick - Current session ID:', currentId)
+    console.log('🚨 DEBUG - handleSendClick - All sessions:', sessions.map(s => ({ id: s.id, name: s.name })))
+    send()
+  }, [currentId, sessions])
+
   // Send message (streaming or non-streaming)
   async function send(){
+    console.log('🚨 DEBUG - send() - Using session ID:', currentId)
+    console.log('🚨 DEBUG - send() - Current session:', sessions.find(s => s.id === currentId))
+    
     const text = (inputRef.current?.value || '').trim()
     if((!text && !selectedImage) || loading) return
     
@@ -493,6 +585,15 @@ export default function App(){
       const next: Msg[] = [...msgs, userMsg]
       return next
     })
+    
+    // Enable auto-scroll for user message (only if user isn't actively scrolling)
+    if (!userScrolling.current) {
+      setShouldAutoScroll(true)
+      // Use the optimized scroll function
+      setTimeout(() => {
+        scrollToBottom()
+      }, 50) // Small delay to ensure DOM has updated
+    }
     
     // Don't add placeholder bot message, just use loading indicator
     if(inputRef.current) inputRef.current.value=''
@@ -579,6 +680,9 @@ export default function App(){
           console.log('📋 Response headers:', Object.fromEntries(resp.headers.entries()))
         } else {
           // Regular JSON request
+          console.log('🚨 DEBUG - Sending to session:', currentId)
+          console.log('🚨 DEBUG - Current session name:', sessions.find(s => s.id === currentId)?.name)
+          
           resp = await fetch('/api/chat_stream', {
             method:'POST', 
             headers:{'Content-Type':'application/json'},
@@ -1275,7 +1379,11 @@ export default function App(){
           </div>
         </div>
 
-        <div className="messages-container">
+        <div 
+          className={`messages-container chat-messages ${isScrolling ? 'scrolling' : ''}`}
+          ref={chatContainerRef}
+          onScroll={handleScroll}
+        >
           {messages.map((message, i) => (
             <MessageComponent key={`${message.who}-${i}-${message.text?.slice(0, 20)}`} message={message} />
           ))}
@@ -1358,11 +1466,11 @@ export default function App(){
               ref={inputRef}
               className="input-field"
               placeholder="Ask me anything..." 
-              onKeyDown={e=>{ if(e.key==='Enter' && !e.shiftKey) { e.preventDefault(); send() } }} 
+              onKeyDown={e=>{ if(e.key==='Enter' && !e.shiftKey) { e.preventDefault(); handleSendClick() } }} 
             />
             <button 
               className="btn btn-primary send-btn" 
-              onClick={send} 
+              onClick={handleSendClick} 
               disabled={loading}
             >
               {loading ? 'Sending...' : 'Send'}

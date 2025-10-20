@@ -1,0 +1,235 @@
+/* Optimized Message Bubble Styles - Performance Enhanced */
+
+/* Use CSS containment for better scroll performance */
+.message-wrapper {
+  contain: layout style;
+  will-change: transform; /* Hint to browser for GPU optimization */
+}
+
+/* Optimized Message Bubble Container */
+.message-bubble {
+  display: flex;
+  flex-direction: column;
+  max-width: calc(100% - 70px);
+  min-width: 120px;
+  position: relative;
+  transform: translateZ(0); /* Force GPU acceleration */
+}
+
+/* Simplified Message Meta with reduced animations */
+.message-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  opacity: 0;
+  transition: opacity 0.15s ease; /* Simplified transition */
+}
+
+.message-wrapper:hover .message-meta {
+  opacity: 1;
+}
+
+.message-wrapper.user .message-meta {
+  flex-direction: row-reverse;
+  justify-content: flex-start;
+}
+
+.sender-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  border: 1px solid var(--border-muted);
+}
+
+.message-time {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 500;
+  padding: 2px 4px;
+}
+
+/* Optimized User Message Styling - Reduced Effects */
+.message-wrapper.user .message-content {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 12px 16px;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.25); /* Simplified shadow */
+  border-radius: 20px 20px 6px 20px;
+  position: relative;
+  transform: translateZ(0); /* GPU acceleration */
+}
+
+/* Simplified tail for user messages */
+.message-wrapper.user .message-content::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  right: -8px;
+  width: 0;
+  height: 0;
+  border-left: 8px solid #764ba2;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+}
+
+/* Optimized Bot Message Styling - Reduced Effects */
+.message-wrapper.bot .message-content {
+  background: rgba(255, 255, 255, 0.98);
+  color: var(--text-primary);
+  padding: 12px 16px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06); /* Simplified shadow */
+  border-radius: 20px 20px 20px 6px;
+  position: relative;
+  transform: translateZ(0); /* GPU acceleration */
+}
+
+/* Simplified tail for bot messages */
+.message-wrapper.bot .message-content::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: -8px;
+  width: 0;
+  height: 0;
+  border-right: 8px solid rgba(255, 255, 255, 0.98);
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+}
+
+/* Optimized Message Text - Better Performance */
+.message-text {
+  line-height: 1.65;
+  font-size: 14px;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  position: relative;
+  /* Remove text-shadow and complex effects for better performance */
+}
+
+.message-wrapper.user .message-text {
+  font-weight: 500;
+}
+
+.message-wrapper.bot .message-text {
+  color: var(--text-primary);
+}
+
+/* Simplified hover effects - Better performance */
+.message-wrapper.user .message-content:hover {
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.35);
+  transition: box-shadow 0.2s ease;
+}
+
+.message-wrapper.bot .message-content:hover {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
+  transition: box-shadow 0.2s ease;
+}
+
+/* Image Message Styles - Optimized */
+.image-message {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.image-indicator {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  background: rgba(9, 105, 218, 0.08);
+  border: 1px solid rgba(9, 105, 218, 0.2);
+  border-radius: var(--radius-md);
+  color: var(--accent-blue);
+  font-size: 13px;
+  font-weight: 500;
+  margin: 2px 0;
+  max-width: fit-content;
+  user-select: none;
+  pointer-events: none;
+}
+
+/* Message Status - Simplified */
+.message-status {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.message-wrapper:hover .message-status {
+  opacity: 1;
+}
+
+.check-icon {
+  width: 12px;
+  height: 12px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* Performance optimizations for scroll */
+.chat-messages {
+  contain: layout style;
+  transform: translateZ(0);
+  scroll-behavior: smooth; /* Native smooth scrolling */
+  -webkit-overflow-scrolling: touch; /* iOS smooth scrolling */
+}
+
+/* Optimized scroll container */
+.messages-container {
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+}
+
+/* Custom scrollbar for better performance */
+.messages-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.messages-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.messages-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 3px;
+  transition: background 0.2s ease;
+}
+
+.messages-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+/* Disable complex effects during scroll */
+.chat-messages.scrolling .message-wrapper {
+  transition: none !important;
+}
+
+.chat-messages.scrolling .message-wrapper * {
+  transition: none !important;
+}
+
+/* Optimize text rendering during scroll */
+.chat-messages.scrolling .message-text {
+  text-rendering: optimizeSpeed;
+}
+
+/* Reduce repaints during auto-scroll */
+.messages-container.auto-scrolling {
+  pointer-events: none;
+}
+
+.messages-container.auto-scrolling * {
+  will-change: transform;
+}

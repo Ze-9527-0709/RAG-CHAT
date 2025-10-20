@@ -34,44 +34,71 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
 
-# Mock data
-MOCK_RESPONSE = """# Welcome to RAG Chat! 🚀
+# Session storage for mock backend
+MOCK_SESSIONS = {}
 
-This is a **mock response** to demonstrate the beautiful new UI while dependencies are installing.
+# Mock responses for different sessions
+def get_mock_response(session_id: str, message: str) -> str:
+    # Initialize session if it doesn't exist
+    if session_id not in MOCK_SESSIONS:
+        MOCK_SESSIONS[session_id] = []
+    
+    # Add user message to session
+    MOCK_SESSIONS[session_id].append({"role": "user", "content": message})
+    
+    # Generate session-specific response
+    session_number = len([k for k in MOCK_SESSIONS.keys() if k <= session_id]) 
+    message_count = len(MOCK_SESSIONS[session_id])
+    
+    response = f"""# Welcome to RAG Chat Session {session_number}! 🚀
 
-## Features Working:
+This is message #{message_count} in this session. **Session ID**: `{session_id[:8]}...`
 
-1. **Markdown Rendering** with syntax highlighting
-2. **Streaming support** (real-time token display)
-3. **Session management** (create, rename, delete)
-4. **Clean interface** without reference clutter
+## Session Features Working:
 
-### Code Example:
+1. **Isolated Sessions** - Each session maintains separate conversation history
+2. **Session Switching** - Messages stay in their respective sessions  
+3. **Message Counting** - This session has {message_count} messages
+4. **Session Persistence** - Your conversation history is maintained
+
+### Your Message:
+> "{message}"
+
+### Session Status:
+- **Current Session**: {session_id[:8]}...
+- **Messages in Session**: {message_count}
+- **Total Sessions**: {len(MOCK_SESSIONS)}
 
 ```python
-def hello_world():
-    print("The UI looks amazing!")
-    return "Copilot-style interface ✨"
+def session_demo():
+    session_id = "{session_id[:8]}..."
+    message_count = {message_count}
+    return f"Session {{session_id}} - Message {{message_count}}"
 ```
 
-### Key Points:
+### Test Instructions:
 
-- Deep dark theme (#0d1117)
-- Gradient buttons and accents
-- Smooth animations
-- Responsive layout
+1. Create a new session
+2. Send messages in different sessions
+3. Switch between sessions to verify isolation
 
-> Once backend dependencies finish installing, you'll get **real RAG responses** with Pinecone + OpenAI!
+> **Session Management**: Working perfectly! Each session maintains its own conversation. ✨
 
-**Status**: Mock mode - full RAG coming soon! 🎯
+**Status**: Mock mode with session isolation! 🎯
 """
+    
+    # Add assistant response to session
+    MOCK_SESSIONS[session_id].append({"role": "assistant", "content": response})
+    
+    return response
 
 @app.post("/api/chat")
 async def chat(req: ChatRequest):
     """Non-streaming mock endpoint"""
     await asyncio.sleep(0.5)  # Simulate processing
+    mock_response = get_mock_response(req.session_id, req.message)
     return ChatResponse(
-        answer=MOCK_RESPONSE
+        answer=mock_response
     )
 
 @app.post("/api/chat_stream")
@@ -80,8 +107,11 @@ async def chat_stream(req: ChatRequest):
     from fastapi.responses import StreamingResponse
     
     async def generate():
+        # Get session-specific response
+        mock_response = get_mock_response(req.session_id, req.message)
+        
         # Stream response word by word
-        words = MOCK_RESPONSE.split()
+        words = mock_response.split()
         for word in words:
             await asyncio.sleep(0.05)  # Simulate streaming delay
             yield f"data: {word} \n\n"

@@ -306,7 +306,12 @@ async def store_conversation_async(session_id: str, user_message: str, assistant
 @app.post("/api/chat_stream")
 @timing_decorator("chat_stream_endpoint")
 async def chat_stream(req: StreamChatRequest):
-    # 🚀 Build context (async optimized)
+    # � Debug: Log session info
+    print(f"🔍 DEBUG - Session ID received: {req.session_id}")
+    print(f"🔍 DEBUG - Current SESSIONS keys: {list(SESSIONS.keys())}")
+    print(f"🔍 DEBUG - Session history length: {len(SESSIONS.get(req.session_id, []))}")
+    
+    # �🚀 Build context (async optimized)
     context, _ = await retrieve_context(req.message, k=4)  # 忽略citations
     
     # 使用身份管理系统构建身份提示词  
@@ -427,6 +432,12 @@ async def chat_stream(req: StreamChatRequest):
             {"role":"user","content":req.message},
             {"role":"assistant","content":adapted_response}
         ])
+        
+        # 🚨 Debug: Log session storage
+        print(f"🔍 DEBUG - Stored message in session: {req.session_id}")
+        print(f"🔍 DEBUG - Session now has {len(SESSIONS[req.session_id])} messages")
+        print(f"🔍 DEBUG - All session keys after storage: {list(SESSIONS.keys())}")
+        
         yield _sse_format("done", "true")
 
     # Add headers to prevent buffering for real-time streaming
