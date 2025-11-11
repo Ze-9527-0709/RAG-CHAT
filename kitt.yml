@@ -1,0 +1,99 @@
+profiles:
+  - basic-docker-build
+  - webapp
+
+owner:
+  group: TMSAPPSNSERVICES
+
+notify:
+  slack:
+    channelName: trnsrestmetric
+
+deploy:
+  namespace: sct-transmetrics
+  gslb:
+    enabled: true
+    strategy: stage
+    lbRoutings:
+      stage:
+        cnames: [ragchat.wcnp.stage.walmart.com]
+        matchStages: [stage]
+  helm:
+    values:
+      backoffLimit: "0"
+      concurrencyPolicy: Forbid
+      restartPolicy: Never
+      min:
+        cpu: 500m
+        memory: 512Mi
+      max:
+        cpu: 2000m
+        memory: 2048Mi
+      scaling:
+        min: 2
+        max: 4
+      # Simple HTTP probe configuration - following wce-webapp-basic bible
+      livenessProbe:
+        enabled: "true"
+        headers: "*/*"
+        path: "/api/health"
+        probeInterval: 10
+        wait: 30
+        timeout: 1
+        failureThreshold: 3
+      readinessProbe:
+        enabled: "true"
+        headers: "*/*"
+        path: "/api/health"
+        probeInterval: 5
+        wait: 15
+        timeout: 1
+        failureThreshold: 3
+      startupProbe:
+        enabled: "false"
+      container:
+        repository: docker.artifacts.walmart.com
+        image: transportation-docker/ragchat
+        tag: latest
+        ports:
+          - containerPort: 8000
+            name: backend
+          - containerPort: 5173
+            name: frontend
+        command: ["/bin/sh"]
+        args: ["-c", "cd /app && ./start.sh full"]
+      # Simple networking configuration - following wce-webapp-basic bible
+      # Expose both Frontend (primary) and Backend API
+      networking:
+        httpsEnabled: true
+        httpEnabled: true
+        httpsRedirect: false
+        pathPrefix: /
+        externalPort: 5173
+        internalPort: 5173
+        # Session affinity for chat session continuity
+        sessionAffinity: ClientIP
+        sessionAffinityConfig:
+          clientIP:
+            timeoutSeconds: 1800
+        ports:
+          http:
+            internalPort: 5173
+            externalPort: 5173
+            protocol: TCP
+          backend:
+            internalPort: 8000
+            externalPort: 8000
+            protocol: TCP
+
+  stages:
+    - name: stage
+      target:
+        - cluster_id: ["uswest-stage-az-002"]
+      refs: ["main"]
+      helm:
+        values:
+          metadata:
+            labels:
+              wm.app: RAGCHAT
+              wm.env: STAGING
